@@ -170,6 +170,9 @@ function PetApp() {
     else void window.companion.setPetInteractive(false);
   }, [editMode]);
 
+  const offsetsRef = useRef(settings.positionOffsets ?? {});
+  const scaleRef = useRef({ clawd: settings.clawdScale, bubble: settings.thoughtScale, ribbon: settings.bubbleScale });
+
   useEffect(() => {
     const move = (e: MouseEvent) => {
       const key = dragging.current;
@@ -177,16 +180,22 @@ function PetApp() {
       const { mx, my, ox, oy } = dragStart.current;
       if (key.startsWith("resize-")) {
         const zoneKey = key.slice(7);
-        const base: Record<string, number> = { clawd: 226, bubble: 106, ribbon: 144 };
-        const b = base[zoneKey] ?? 100;
-        const newScale = Math.max(0.6, Math.min(2, (ox + e.clientY - my) / b));
-        const rounded = Math.round(newScale * 20) / 20;
-        const field: Record<string, string> = { clawd: "clawdScale", bubble: "thoughtScale", ribbon: "bubbleScale" };
-        updateSettings({ [field[zoneKey] ?? "bubbleScale"]: rounded });
+        if (zoneKey === "clawd") {
+          updateSettings({ clawdScale: Math.max(0.6, Math.min(2, ox + (e.clientX - mx) / 226)) });
+        } else if (zoneKey === "bubble") {
+          const ns = Math.max(0.6, Math.min(2, oy + (e.clientY - my) / 106));
+          updateSettings({ thoughtScale: ns, cardScale: ns });
+        } else if (zoneKey === "ribbon") {
+          updateSettings({ bubbleScale: Math.max(0.6, Math.min(2, ox + (e.clientX - mx) / 144)) });
+        } else if (zoneKey === "stage") {
+          updateSettings({ petScale: Math.max(0.7, Math.min(1.6, ox + (e.clientX - mx) / 226)) });
+        }
+      } else if (key === "stage") {
+        // stage 不可拖动，忽略
       } else {
         const nx = ox + e.clientX - mx;
         const ny = oy + e.clientY - my;
-        const p = (settings.positionOffsets ?? {});
+        const p = offsetsRef.current;
         updateSettings({ positionOffsets: { ...p, [key]: { x: nx, y: ny } } });
       }
     };
@@ -194,9 +203,10 @@ function PetApp() {
     window.addEventListener("mousemove", move);
     window.addEventListener("mouseup", up);
     return () => { window.removeEventListener("mousemove", move); window.removeEventListener("mouseup", up); };
-  }, [editMode, settings.positionOffsets, updateSettings]);
+  }, []);
 
-  useEffect(() => { offRef.current = settings.positionOffsets ?? {}; }, [settings.positionOffsets]);
+  useEffect(() => { offsetsRef.current = settings.positionOffsets ?? {}; }, [settings.positionOffsets]);
+  useEffect(() => { scaleRef.current = { clawd: settings.clawdScale, bubble: settings.thoughtScale, ribbon: settings.bubbleScale }; }, [settings.clawdScale, settings.thoughtScale, settings.bubbleScale]);
 
   if (!settings.petEnabled) return <main className="pet-stage pet-disabled" />;
 
@@ -213,8 +223,8 @@ function PetApp() {
     if (!editMode) return;
     e.stopPropagation();
     dragging.current = `resize-${k}`;
-    const scales: Record<string, number> = { clawd: settings.clawdScale, bubble: settings.thoughtScale, ribbon: settings.bubbleScale };
-    dragStart.current = { mx: e.clientX, my: e.clientY, ox: scales[k] ?? 1, oy: scales[k] ?? 1 };
+    const s = scaleRef.current;
+    dragStart.current = { mx: e.clientX, my: e.clientY, ox: s[k as keyof typeof s] ?? 1, oy: s[k as keyof typeof s] ?? 1 };
   }
 
   if (editMode) {
@@ -226,6 +236,13 @@ function PetApp() {
 
     return (
       <main className="pet-stage edit-mode">
+        {/* Zone 0: 整体区域 (petScale) */}
+        <div className="edit-zone edit-zone-stage"
+          style={{ transform: `translateX(-50%) scale(${settings.petScale})` }}
+          onMouseDown={e => begin("stage", e)}>
+          <span className="edit-zone-label">整体区域</span>
+          <span className="zone-resize" onMouseDown={e => { e.stopPropagation(); dragging.current = "resize-stage"; dragStart.current = { mx: e.clientX, my: e.clientY, ox: settings.petScale, oy: settings.petScale }; }} />
+        </div>
         <section className="pet-anchor" style={{ transform: `translateX(-50%) scale(${settings.petScale})` }}>
           {/* Zone 1: Clawd */}
           <div className="edit-zone edit-zone-clawd"
