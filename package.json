@@ -1,8 +1,9 @@
 {
   "name": "claude-code-companion",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "private": true,
-  "description": "A Clawd-inspired desktop companion for Claude Code tool activity and completion notifications.",
+  "description": "Clawd Companion - Claude Code 桌宠伴侣，实时显示工具调用和会话状态。",
+  "author": "Doulor",
   "type": "module",
   "scripts": {
     "dev": "vite --host 127.0.0.1",
@@ -10,25 +11,51 @@
     "build": "tsc -p tsconfig.node.json && tsc -p tsconfig.preload.json && tsc -p tsconfig.json && vite build && npm run build:forwarder",
     "build:forwarder": "tsc -p apps/hook-forwarder/tsconfig.json",
     "start": "electron .",
+    "pack": "npm run build && electron-builder --dir",
+    "dist": "npm run build && electron-builder",
     "typecheck": "tsc -p tsconfig.node.json --noEmit && tsc -p tsconfig.preload.json --noEmit && tsc -p tsconfig.json --noEmit && tsc -p apps/hook-forwarder/tsconfig.json --noEmit"
   },
   "main": "dist/main/index.js",
+  "build": {
+    "appId": "com.doulor.clawd-companion",
+    "productName": "Clawd Companion",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "build/**/*"
+    ],
+    "win": {
+      "target": "nsis",
+      "icon": "build/icon.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Clawd Companion"
+    }
+  },
   "dependencies": {
     "@vitejs/plugin-react": "latest",
+    "lucide-react": "latest",
+    "react": "latest",
+    "react-dom": "latest",
+    "ws": "latest"
+  },
+  "devDependencies": {
+    "@types/node": "latest",
+    "@types/react": "latest",
+    "@types/react-dom": "latest",
+    "@types/ws": "latest",
     "concurrently": "latest",
     "cross-env": "latest",
     "electron": "latest",
-    "lucide-react": "latest",
+    "electron-builder": "^26.0.0",
     "typescript": "latest",
     "vite": "latest",
-    "wait-on": "latest",
-    "ws": "latest",
-    "@types/ws": "latest",
-    "react": "latest",
-    "react-dom": "latest",
-    "@types/react": "latest",
-    "@types/react-dom": "latest",
-    "@types/node": "latest"
-  },
-  "devDependencies": {}
+    "wait-on": "latest"
+  }
 }

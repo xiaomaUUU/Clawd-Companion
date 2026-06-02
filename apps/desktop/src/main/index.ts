@@ -9,6 +9,7 @@ import { defaultSettings } from "../shared/events.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const isDev = Boolean(process.env.VITE_DEV_SERVER_URL);
+const iconPath = join(__dirname, "../../build/icon.ico");
 const appDataDir = join(app.getPath("userData"), "clawd-companion");
 const settingsPath = join(appDataDir, "settings.json");
 const logPath = join(appDataDir, "runtime.log");
@@ -124,6 +125,7 @@ function createPetWindow() {
     hasShadow: false,
     alwaysOnTop: settings.alwaysOnTop,
     backgroundColor: "#00000000",
+    icon: iconPath,
     webPreferences: {
       preload: join(__dirname, "preload.cjs"),
       contextIsolation: true,
@@ -196,6 +198,7 @@ function createSettingsWindow() {
     title: "Clawd Companion",
     frame: false,
     backgroundColor: "#f5efe3",
+    icon: iconPath,
     autoHideMenuBar: true,
     webPreferences: {
       preload: join(__dirname, "preload.cjs"),
@@ -212,11 +215,7 @@ function createSettingsWindow() {
 }
 
 function makeTrayIcon() {
-  const image = nativeImage.createFromDataURL(
-    "data:image/svg+xml;utf8," +
-      encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32"><rect width="32" height="32" rx="8" fill="#2b2118"/><circle cx="16" cy="16" r="10" fill="#f0c66f"/><circle cx="12" cy="14" r="2" fill="#2b2118"/><circle cx="20" cy="14" r="2" fill="#2b2118"/><path d="M11 20c3 3 7 3 10 0" stroke="#2b2118" stroke-width="2" fill="none" stroke-linecap="round"/></svg>`)
-  );
-  tray = new Tray(image);
+  tray = new Tray(iconPath);
   tray.setToolTip("Clawd Companion");
   tray.setContextMenu(Menu.buildFromTemplate([
     { label: "打开配置", click: createSettingsWindow },
