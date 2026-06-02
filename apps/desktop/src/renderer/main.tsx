@@ -161,12 +161,9 @@ function useCompanion() {
 function PetApp() {
   const { settings, updateSettings, currentEvent, petState, toolRibbon } = useCompanion();
   const editMode = settings.editPosition;
-  const dragKey = useRef<string | null>(null);
-  const dragOrigin = useRef<{ mouseX: number; mouseY: number; offX: number; offY: number } | null>(null);
-  const updateRef = useRef(updateSettings);
-  const offsetsRef = useRef(settings.positionOffsets ?? {});
-  updateRef.current = updateSettings;
-  offsetsRef.current = settings.positionOffsets ?? {};
+  const dragging = useRef<string | null>(null);
+  const dragStart = useRef<{ mx: number; my: number; ox: number; oy: number }>({ mx: 0, my: 0, ox: 0, oy: 0 });
+  const offRef = useRef(settings.positionOffsets ?? {});
 
   useEffect(() => {
     if (editMode) void window.companion.setPetInteractive(true);
@@ -174,72 +171,88 @@ function PetApp() {
   }, [editMode]);
 
   useEffect(() => {
-    function onMouseMove(e: MouseEvent) {
-      if (!dragKey.current || !dragOrigin.current) return;
-      const dx = e.clientX - dragOrigin.current.mouseX;
-      const dy = e.clientY - dragOrigin.current.mouseY;
-      const key = dragKey.current as "clawd" | "bubble" | "ribbon";
-      const offsets = offsetsRef.current;
-      updateRef.current({ positionOffsets: { ...offsets, [key]: { x: dragOrigin.current.offX + dx, y: dragOrigin.current.offY + dy } } });
-    }
-    function onMouseUp() { dragKey.current = null; dragOrigin.current = null; }
-    window.addEventListener("mousemove", onMouseMove);
-    window.addEventListener("mouseup", onMouseUp);
-    return () => { window.removeEventListener("mousemove", onMouseMove); window.removeEventListener("mouseup", onMouseUp); };
-  }, []);
+    const move = (e: MouseEvent) => {
+      const key = dragging.current;
+      if (!key) return;
+      const offsets = offRef.current;
+      const { mx, my, ox, oy } = dragStart.current;
+      const nx = ox + e.clientX - mx;
+      const ny = oy + e.clientY - my;
+      const p = (settings.positionOffsets ?? {});
+      updateSettings({ positionOffsets: { ...p, [key]: { x: nx, y: ny } } });
+    };
+    const up = () => { dragging.current = null; };
+    window.addEventListener("mousemove", move);
+    window.addEventListener("mouseup", up);
+    return () => { window.removeEventListener("mousemove", move); window.removeEventListener("mouseup", up); };
+  }, [editMode, settings.positionOffsets, updateSettings]);
+
+  useEffect(() => { offRef.current = settings.positionOffsets ?? {}; }, [settings.positionOffsets]);
 
   if (!settings.petEnabled) return <main className="pet-stage pet-disabled" />;
 
   const offsets = settings.positionOffsets ?? {};
 
-  function startDrag(key: string, e: React.MouseEvent) {
+  function begin(k: string, e: React.MouseEvent) {
     if (!editMode) return;
     e.stopPropagation();
-    dragKey.current = key;
-    dragOrigin.current = { mouseX: e.clientX, mouseY: e.clientY, offX: offsets[key as keyof typeof offsets]?.x ?? 0, offY: offsets[key as keyof typeof offsets]?.y ?? 0 };
+    dragging.current = k;
+    dragStart.current = { mx: e.clientX, my: e.clientY, ox: offsets[k as keyof typeof offsets]?.x ?? 0, oy: offsets[k as keyof typeof offsets]?.y ?? 0 };
+  }
+
+  if (editMode) {
+    return (
+      <main className="pet-stage edit-mode">
+        <section className="pet-anchor" style={{ transform: `translateX(-50%) scale(${settings.petScale})` }}>
+          {/* Zone 1: Clawd */}
+          <div className="edit-zone edit-zone-clawd"
+            style={{ transform: `translate(${offsets.clawd?.x ?? 0}px, ${offsets.clawd?.y ?? 0}px)` }}
+            onMouseDown={e => begin("clawd", e)}>
+            <span className="edit-zone-label">Clawd</span>
+            <div className="clawd" style={{ position: "absolute", left: 0, bottom: 0, width: 226, height: 238, animation: "none" }}>
+              <div className="clawd-glow" />
+              <img className="clawd-image" src={clawdImage} alt="" draggable={false} />
+              <div className="shadow" />
+            </div>
+          </div>
+          {/* Zone 2: 气泡/卡片 */}
+          <div className="edit-zone edit-zone-bubble"
+            style={{ transform: `translate(${offsets.bubble?.x ?? 0}px, ${offsets.bubble?.y ?? 0}px)` }}
+            onMouseDown={e => begin("bubble", e)}>
+            <span className="edit-zone-label">气泡 / 卡片</span>
+            {currentEvent && getFeedbackMode(currentEvent, settings) !== "ribbon" ? (
+              <div className="bubble-wrapper" style={{ pointerEvents: "none" }}>
+                <Bubble event={currentEvent} state={stateFromEvent(currentEvent)} settings={settings} />
+              </div>
+            ) : null}
+          </div>
+          {/* Zone 3: 工具条 */}
+          <div className="edit-zone edit-zone-ribbon"
+            style={{ transform: `translate(${offsets.ribbon?.x ?? 0}px, ${offsets.ribbon?.y ?? 0}px)` }}
+            onMouseDown={e => begin("ribbon", e)}>
+            <span className="edit-zone-label">工具条</span>
+          </div>
+        </section>
+      </main>
+    );
   }
 
   return (
-    <main className={`pet-stage ${editMode ? "edit-mode" : ""}`}>
-      <section
-        className="pet-anchor"
-        style={{ transform: `translateX(-50%) scale(${settings.petScale})`, opacity: settings.petOpacity }}
-      >
-        {editMode ? (
-          <>
-            <div className="guide guide-clawd" />
-            <div className="guide guide-bubble" />
-            <div className="guide guide-ribbon" />
-            <span className="guide-label" style={{ left: "50%", bottom: 242, transform: "translateX(-50%)" }}>Clawd</span>
-            <span className="guide-label" style={{ left: "50%", top: 118, transform: "translateX(-50%)" }}>气泡/卡片</span>
-            <span className="guide-label" style={{ left: 16, bottom: 168 }}>工具条</span>
-          </>
-        ) : null}
+    <main className="pet-stage">
+      <section className="pet-anchor" style={{ transform: `translateX(-50%) scale(${settings.petScale})`, opacity: settings.petOpacity }}>
         {settings.showBubbles && currentEvent && getFeedbackMode(currentEvent, settings) !== "ribbon" ? (
-          <div
-            className="bubble-wrapper edit-drag"
-            style={{ transform: `translate(${offsets.bubble?.x ?? 0}px, ${offsets.bubble?.y ?? 0}px)` }}
-            onMouseDown={e => startDrag("bubble", e)}
-          >
+          <div className="bubble-wrapper" style={{ transform: `translate(${offsets.bubble?.x ?? 0}px, ${offsets.bubble?.y ?? 0}px)` }}>
             <Bubble event={currentEvent} state={stateFromEvent(currentEvent)} settings={settings} />
           </div>
         ) : null}
-        <div
-          className="clawd drag-root edit-drag"
-          style={{ transform: `translate(${offsets.clawd?.x ?? 0}px, ${offsets.clawd?.y ?? 0}px) scale(${settings.clawdScale})`, opacity: settings.clawdOpacity }}
-          onMouseDown={e => startDrag("clawd", e)}
-        >
+        <div className="clawd" style={{ transform: `translate(${offsets.clawd?.x ?? 0}px, ${offsets.clawd?.y ?? 0}px) scale(${settings.clawdScale})`, opacity: settings.clawdOpacity }}>
           <div className="clawd-glow" />
           <img className="clawd-image" src={clawdImage} alt="" draggable={false} />
           {settings.showStatusProp ? <StateProp state={petState} /> : null}
           <div className="shadow" />
         </div>
         {settings.showBubbles && toolRibbon.length > 0 ? (
-          <div
-            className="tool-ribbon edit-drag"
-            style={{ transform: `translate(${offsets.ribbon?.x ?? 0}px, ${offsets.ribbon?.y ?? 0}px)`, "--bubble-scale": settings.bubbleScale, "--bubble-opacity": settings.bubbleOpacity } as React.CSSProperties}
-            onMouseDown={e => startDrag("ribbon", e)}
-          >
+          <div className="tool-ribbon" style={{ transform: `translate(${offsets.ribbon?.x ?? 0}px, ${offsets.ribbon?.y ?? 0}px)` }}>
             {toolRibbon.slice(0, 5).map((event) => {
               const tool = event.tool ?? "Unknown";
               const color = toolColorMap[tool] ?? "steel";
