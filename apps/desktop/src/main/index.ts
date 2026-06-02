@@ -50,7 +50,8 @@ function loadSettings(): CompanionSettings {
     ...defaultSettings,
     ...stored,
     feedbackModes: { ...defaultSettings.feedbackModes, ...(stored.feedbackModes ?? {}) },
-    toolFeedbackModes: { ...defaultSettings.toolFeedbackModes, ...(stored.toolFeedbackModes ?? {}) }
+    toolFeedbackModes: { ...defaultSettings.toolFeedbackModes, ...(stored.toolFeedbackModes ?? {}) },
+    zoneSizes: stored.zoneSizes ?? defaultSettings.zoneSizes
   };
 }
 

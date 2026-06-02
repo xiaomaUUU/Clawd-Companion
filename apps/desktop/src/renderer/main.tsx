@@ -177,10 +177,12 @@ function PetApp() {
       const { mx, my, ox, oy } = dragStart.current;
       if (key.startsWith("resize-")) {
         const zoneKey = key.slice(7);
-        const nw = Math.max(60, ox + e.clientX - mx);
-        const nh = Math.max(40, oy + e.clientY - my);
-        const sizes = settings.zoneSizes ?? {};
-        updateSettings({ zoneSizes: { ...sizes, [zoneKey]: { w: Math.round(nw), h: Math.round(nh) } } });
+        const base: Record<string, number> = { clawd: 226, bubble: 106, ribbon: 144 };
+        const b = base[zoneKey] ?? 100;
+        const newScale = Math.max(0.6, Math.min(2, (ox + e.clientY - my) / b));
+        const rounded = Math.round(newScale * 20) / 20;
+        const field: Record<string, string> = { clawd: "clawdScale", bubble: "thoughtScale", ribbon: "bubbleScale" };
+        updateSettings({ [field[zoneKey] ?? "bubbleScale"]: rounded });
       } else {
         const nx = ox + e.clientX - mx;
         const ny = oy + e.clientY - my;
@@ -199,7 +201,6 @@ function PetApp() {
   if (!settings.petEnabled) return <main className="pet-stage pet-disabled" />;
 
   const offsets = settings.positionOffsets ?? {};
-  const zoneSizes = (settings.zoneSizes ?? {}) as Record<string, { w: number; h: number } | undefined>;
 
   function begin(k: string, e: React.MouseEvent) {
     if (!editMode) return;
@@ -212,14 +213,16 @@ function PetApp() {
     if (!editMode) return;
     e.stopPropagation();
     dragging.current = `resize-${k}`;
-    const sz = zoneSizes[k];
-    dragStart.current = { mx: e.clientX, my: e.clientY, ox: sz?.w ?? 0, oy: sz?.h ?? 0 };
+    const scales: Record<string, number> = { clawd: settings.clawdScale, bubble: settings.thoughtScale, ribbon: settings.bubbleScale };
+    dragStart.current = { mx: e.clientX, my: e.clientY, ox: scales[k] ?? 1, oy: scales[k] ?? 1 };
   }
 
   if (editMode) {
-    const cs = zoneSizes.clawd ?? { w: 0, h: 0 };
-    const bs = zoneSizes.bubble ?? { w: 0, h: 0 };
-    const rs = zoneSizes.ribbon ?? { w: 0, h: 0 };
+    const cw = Math.round(226 * settings.clawdScale);
+    const ch = Math.round(238 * settings.clawdScale);
+    const bh = Math.round(106 * settings.thoughtScale);
+    const rw = Math.round(144 * settings.bubbleScale);
+    const rh = Math.round(144 * settings.bubbleScale);
 
     return (
       <main className="pet-stage edit-mode">
@@ -228,8 +231,7 @@ function PetApp() {
           <div className="edit-zone edit-zone-clawd"
             style={{
               transform: `translate(${offsets.clawd?.x ?? 0}px, ${offsets.clawd?.y ?? 0}px)`,
-              width: cs.w ? `${cs.w}px` : undefined,
-              height: cs.h ? `${cs.h}px` : undefined
+              width: cw, height: ch
             }}
             onMouseDown={e => begin("clawd", e)}>
             <span className="edit-zone-label">Clawd</span>
@@ -244,10 +246,7 @@ function PetApp() {
           <div className="edit-zone edit-zone-bubble"
             style={{
               transform: `translate(${offsets.bubble?.x ?? 0}px, ${offsets.bubble?.y ?? 0}px)`,
-              width: bs.w ? `${bs.w}px` : undefined,
-              height: bs.h ? `${bs.h}px` : undefined,
-              right: bs.w ? "auto" : undefined,
-              bottom: bs.h ? "auto" : undefined
+              height: bh
             }}
             onMouseDown={e => begin("bubble", e)}>
             <span className="edit-zone-label">气泡 / 卡片</span>
@@ -262,8 +261,7 @@ function PetApp() {
           <div className="edit-zone edit-zone-ribbon"
             style={{
               transform: `translate(${offsets.ribbon?.x ?? 0}px, ${offsets.ribbon?.y ?? 0}px)`,
-              width: rs.w ? `${rs.w}px` : undefined,
-              height: rs.h ? `${rs.h}px` : undefined
+              width: rw, height: rh
             }}
             onMouseDown={e => begin("ribbon", e)}>
             <span className="edit-zone-label">工具条</span>
