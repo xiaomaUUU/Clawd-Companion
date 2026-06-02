@@ -47,6 +47,7 @@ button { border: 0; cursor: pointer; }
 .pet-stage.edit-mode .tool-ribbon,
 .pet-stage.edit-mode .clawd.drag-root { pointer-events: auto; cursor: move; }
 .pet-stage.edit-mode .clawd-image { pointer-events: none; }
+.pet-stage.edit-mode .pet-anchor { pointer-events: auto; -webkit-app-region: no-drag; }
 .edit-guides {
   position: absolute;
   inset: 0;
