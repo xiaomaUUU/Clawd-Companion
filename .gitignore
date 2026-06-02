@@ -1,0 +1,16 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+
+# User data
+*.log
+
+# OS files
+Thumbs.db
+Desktop.ini
+
+# Editor
+.vscode/
+.idea/

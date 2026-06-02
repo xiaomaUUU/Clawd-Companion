@@ -32,12 +32,17 @@ export type PetState =
   | "error";
 
 export type PrivacyMode = "safe" | "standard" | "detailed";
+export type FeedbackMode = "thought" | "card";
+
+export type ClientType = "cli" | "desktop" | "vscode" | "unknown";
 
 export interface CompanionEvent {
   id: string;
   source: "claude-code" | "cc-haha" | "manual";
   event: CompanionEventType;
   sessionId?: string;
+  clientType?: ClientType;
+  clientLabel?: string;
   tool?: ToolName;
   title: string;
   message: string;
@@ -52,9 +57,41 @@ export interface CompanionSettings {
   showBubbles: boolean;
   alwaysOnTop: boolean;
   clickThrough: boolean;
+  petEnabled: boolean;
   petScale: number;
+  petOpacity: number;
+  clawdScale: number;
+  clawdOpacity: number;
+  thoughtScale: number;
+  thoughtOpacity: number;
+  cardScale: number;
+  cardOpacity: number;
+  bubbleScale: number;
+  bubbleOpacity: number;
+  bubbleDuration: number;
+  feedbackModes: Partial<Record<PetState, FeedbackMode>>;
+  showStatusProp: boolean;
+  launchAtLogin: boolean;
+  openSettingsOnStart: boolean;
   doneSound: boolean;
+  eventHistoryLimit: number;
   position?: { x: number; y: number };
+}
+
+export interface CompanionConnectionStatus {
+  port: number;
+  serverListening: boolean;
+  tokenSet: boolean;
+  privacyMode: PrivacyMode;
+  connected: boolean;
+  activeSessionId?: string;
+  activeClientType?: ClientType;
+  activeClientLabel?: string;
+  lastEventAt?: number;
+  lastEventTitle?: string;
+  lastEventType?: CompanionEventType;
+  lastEventSource?: CompanionEvent["source"];
+  error?: string;
 }
 
 export const defaultSettings: CompanionSettings = {
@@ -64,8 +101,33 @@ export const defaultSettings: CompanionSettings = {
   showBubbles: true,
   alwaysOnTop: true,
   clickThrough: false,
+  petEnabled: true,
   petScale: 1,
-  doneSound: false
+  petOpacity: 1,
+  clawdScale: 1,
+  clawdOpacity: 1,
+  thoughtScale: 1,
+  thoughtOpacity: 1,
+  cardScale: 1,
+  cardOpacity: 1,
+  bubbleScale: 1,
+  bubbleOpacity: 1,
+  bubbleDuration: 8,
+  feedbackModes: {
+    thinking: "thought",
+    tool_read: "thought",
+    tool_edit: "thought",
+    tool_bash: "thought",
+    tool_search: "thought",
+    waiting_permission: "card",
+    done: "card",
+    error: "card"
+  },
+  showStatusProp: true,
+  launchAtLogin: false,
+  openSettingsOnStart: true,
+  doneSound: false,
+  eventHistoryLimit: 40
 };
 
 export function stateFromEvent(event: CompanionEvent): PetState {

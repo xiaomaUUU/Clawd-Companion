@@ -1,0 +1,70 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node D:/build/GitLocal/claude-code-companion/dist/hook-forwarder/index.js"
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node D:/build/GitLocal/claude-code-companion/dist/hook-forwarder/index.js"
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node D:/build/GitLocal/claude-code-companion/dist/hook-forwarder/index.js"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node D:/build/GitLocal/claude-code-companion/dist/hook-forwarder/index.js"
+          }
+        ]
+      }
+    ],
+    "Notification": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node D:/build/GitLocal/claude-code-companion/dist/hook-forwarder/index.js"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node D:/build/GitLocal/claude-code-companion/dist/hook-forwarder/index.js"
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -7,8 +7,9 @@
     "strict": true,
     "skipLibCheck": true,
     "esModuleInterop": true,
-    "outDir": "dist/main",
-    "rootDir": "apps/desktop/src/main"
+    "outDir": "dist",
+    "rootDir": "apps/desktop/src",
+    "types": ["node"]
   },
-  "include": ["apps/desktop/src/main"]
+  "include": ["apps/desktop/src/main/index.ts", "apps/desktop/src/shared"]
 }

@@ -1,29 +1,79 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
-import { Bell, Bot, Check, Code2, Eye, EyeOff, Gauge, MousePointer2, Play, Power, Radio, RotateCcw, Save, Search, Settings, Shield, Terminal, Wrench } from "lucide-react";
-import type { CompanionEvent, CompanionSettings, PetState, PrivacyMode } from "../shared/events";
+import {
+  Bell,
+  Bot,
+  Check,
+  Clipboard,
+  Code2,
+  Eye,
+  EyeOff,
+  FileText,
+  Gauge,
+  MonitorCheck,
+  MousePointer2,
+  Play,
+  PlugZap,
+  Radio,
+  Search,
+  Shield,
+  Sparkles,
+  Terminal,
+  Timer,
+  Wand2,
+  Wrench,
+  X
+} from "lucide-react";
+import type { CompanionConnectionStatus, CompanionEvent, CompanionSettings, FeedbackMode, PetState, PrivacyMode } from "../shared/events";
 import { defaultSettings, stateFromEvent } from "../shared/events";
+import clawdImage from "./clawd.png";
 import "./styles.css";
 
-const stateCopy: Record<PetState, { label: string; line: string }> = {
-  idle: { label: "待机", line: "Clawd 在桌面边缘小憩" },
-  thinking: { label: "思考中", line: "正在整理上下文" },
-  tool_read: { label: "读取", line: "正在看文件" },
-  tool_edit: { label: "编辑", line: "正在改代码" },
-  tool_bash: { label: "终端", line: "正在执行命令" },
-  tool_search: { label: "搜索", line: "正在检索线索" },
-  waiting_permission: { label: "等待确认", line: "需要你处理一个确认" },
-  done: { label: "完成", line: "这一轮已经处理完" },
-  error: { label: "出错", line: "刚才有一步失败了" }
+const stateCopy: Record<PetState, { label: string; line: string; tone: string }> = {
+  idle: { label: "待机", line: "Clawd 在桌面边缘小憩", tone: "sand" },
+  thinking: { label: "思考中", line: "正在整理上下文", tone: "blue" },
+  tool_read: { label: "读取", line: "正在看文件", tone: "green" },
+  tool_edit: { label: "编辑", line: "正在改代码", tone: "coral" },
+  tool_bash: { label: "终端", line: "正在执行命令", tone: "ink" },
+  tool_search: { label: "搜索", line: "正在检索线索", tone: "blue" },
+  waiting_permission: { label: "等待确认", line: "需要你处理一个确认", tone: "honey" },
+  done: { label: "完成", line: "这一轮已经处理完", tone: "green" },
+  error: { label: "出错", line: "刚才有一步失败了", tone: "coral" }
 };
 
 const sampleEvents: CompanionEvent[] = [
-  makeEvent("prompt_submit", "manual", "收到新任务", "Clawd 开始陪你盯这一轮处理。"),
-  makeEvent("tool_start", "manual", "正在编辑文件", "Edit 工具已开始。", "Edit"),
+  makeEvent("session_start", "manual", "Claude Code 会话开始", "Clawd 已经进入陪跑状态。"),
+  makeEvent("prompt_submit", "manual", "收到新任务", "正在分析你的输入。"),
+  makeEvent("tool_start", "manual", "正在读取文件", "Read 工具已开始。", "Read"),
+  makeEvent("tool_start", "manual", "正在编辑代码", "Edit 工具已开始。", "Edit"),
   makeEvent("tool_start", "manual", "正在跑命令", "Bash 工具已开始。", "Bash"),
+  makeEvent("tool_start", "manual", "正在搜索", "Grep/Glob 正在检索。", "Grep"),
   makeEvent("permission_wait", "manual", "需要确认", "Claude Code 正在等待你的许可。"),
-  makeEvent("done", "manual", "处理完成", "Claude Code 这一轮已经结束。"),
+  makeEvent("done", "manual", "处理完成", "这一轮已经结束。"),
   makeEvent("error", "manual", "执行失败", "有一个工具调用没有成功。")
+];
+
+const feedbackRows: Array<{ state: PetState; label: string }> = [
+  { state: "thinking", label: "思考 / 新消息" },
+  { state: "tool_read", label: "读取文件" },
+  { state: "tool_edit", label: "编辑文件" },
+  { state: "tool_bash", label: "执行命令" },
+  { state: "tool_search", label: "搜索资料" },
+  { state: "waiting_permission", label: "等待确认" },
+  { state: "done", label: "处理完成" },
+  { state: "error", label: "错误" }
+];
+
+const mappingRows: Array<{ source: string; tool?: string; state: PetState; title: string }> = [
+  { source: "SessionStart", state: "thinking", title: "会话开始" },
+  { source: "UserPromptSubmit", state: "thinking", title: "收到用户输入" },
+  { source: "PreToolUse", tool: "Read", state: "tool_read", title: "读取文件" },
+  { source: "PreToolUse", tool: "Edit / Write", state: "tool_edit", title: "修改文件" },
+  { source: "PreToolUse", tool: "Bash", state: "tool_bash", title: "执行命令" },
+  { source: "PreToolUse", tool: "Grep / Glob / WebFetch", state: "tool_search", title: "搜索资料" },
+  { source: "Notification", state: "waiting_permission", title: "等待确认" },
+  { source: "Stop", state: "done", title: "处理完成" },
+  { source: "转发失败", state: "error", title: "异常提示" }
 ];
 
 function makeEvent(event: CompanionEvent["event"], source: CompanionEvent["source"], title: string, message: string, tool?: CompanionEvent["tool"]): CompanionEvent {
@@ -40,18 +90,29 @@ function makeEvent(event: CompanionEvent["event"], source: CompanionEvent["sourc
 
 function useCompanion() {
   const [settings, setSettings] = useState<CompanionSettings>(defaultSettings);
+  const [connection, setConnection] = useState<CompanionConnectionStatus>({
+    port: defaultSettings.port,
+    serverListening: false,
+    tokenSet: true,
+    privacyMode: defaultSettings.privacyMode,
+    connected: false
+  });
   const [events, setEvents] = useState<CompanionEvent[]>([]);
   const [currentEvent, setCurrentEvent] = useState<CompanionEvent | null>(null);
   const [petState, setPetState] = useState<PetState>("idle");
 
   useEffect(() => {
-    window.companion.getSettings().then(setSettings);
+    void window.companion.getSettings().then(setSettings);
+    void window.companion.getConnectionStatus().then(setConnection);
     const offSettings = window.companion.onSettings(setSettings);
+    const offConnection = window.companion.onConnection(setConnection);
     const offEvent = window.companion.onEvent(event => {
-      setEvents(previous => [event, ...previous].slice(0, 24));
-      setCurrentEvent(event);
+      setEvents(previous => [event, ...previous].slice(0, settings.eventHistoryLimit));
       setPetState(stateFromEvent(event));
-      const timeout = event.event === "done" || event.event === "error" ? 5200 : 8000;
+      if (event.event !== "tool_end") {
+        setCurrentEvent(event);
+      }
+      const timeout = (event.event === "done" || event.event === "error" ? 5.2 : event.event === "tool_end" ? 2 : settings.bubbleDuration) * 1000;
       window.setTimeout(() => {
         setPetState(current => current === stateFromEvent(event) ? "idle" : current);
         setCurrentEvent(current => current?.id === event.id ? null : current);
@@ -59,74 +120,80 @@ function useCompanion() {
     });
     return () => {
       offSettings();
+      offConnection();
       offEvent();
     };
-  }, []);
+  }, [settings.bubbleDuration, settings.eventHistoryLimit]);
 
   async function updateSettings(next: Partial<CompanionSettings>) {
     const saved = await window.companion.saveSettings(next);
     setSettings(saved);
   }
 
-  return { settings, updateSettings, events, currentEvent, petState };
+  return { settings, updateSettings, connection, events, currentEvent, petState };
 }
 
 function PetApp() {
   const { settings, currentEvent, petState } = useCompanion();
-  const [dragOrigin, setDragOrigin] = useState<{ pointerX: number; pointerY: number; windowX: number; windowY: number } | null>(null);
 
-  function beginDrag(event: React.PointerEvent) {
-    if (settings.clickThrough) return;
-    setDragOrigin({ pointerX: event.screenX, pointerY: event.screenY, windowX: window.screenX, windowY: window.screenY });
-    (event.currentTarget as HTMLElement).setPointerCapture(event.pointerId);
-  }
-
-  function drag(event: React.PointerEvent) {
-    if (!dragOrigin) return;
-    void window.companion.dragPetTo(dragOrigin.windowX + event.screenX - dragOrigin.pointerX, dragOrigin.windowY + event.screenY - dragOrigin.pointerY);
-  }
+  if (!settings.petEnabled) return <main className="pet-stage pet-disabled" />;
 
   return (
-    <main className="pet-stage" onPointerDown={beginDrag} onPointerMove={drag} onPointerUp={() => setDragOrigin(null)}>
-      {settings.showBubbles && currentEvent ? <Bubble event={currentEvent} state={petState} /> : null}
-      <Clawd state={petState} scale={settings.petScale} />
-      <button className="pet-gear" title="打开配置" onClick={() => window.companion.openSettings()}><Settings size={17} /></button>
+    <main className="pet-stage">
+      <section
+        className="pet-anchor"
+        style={{ transform: `translateX(-50%) scale(${settings.petScale})`, opacity: settings.petOpacity }}
+      >
+        {settings.showBubbles && currentEvent ? <Bubble event={currentEvent} state={stateFromEvent(currentEvent)} settings={settings} /> : null}
+        <Clawd state={petState} settings={settings} />
+      </section>
     </main>
   );
 }
 
-function Bubble({ event, state }: { event: CompanionEvent; state: PetState }) {
+function Bubble({ event, state, settings }: { event: CompanionEvent; state: PetState; settings: CompanionSettings }) {
+  const toolLabel = event.tool && event.tool !== "Unknown" ? event.tool : event.source === "claude-code" ? "Claude Code" : "Manual";
+  const feedbackMode = settings.feedbackModes?.[state] ?? "card";
+  if (feedbackMode === "thought") {
+    return (
+      <div className="thought-wrapper" style={{ transform: `scale(${settings.thoughtScale})`, opacity: settings.thoughtOpacity }}>
+        <section className={`thought-bubble thought-${state}`}>
+          <i />
+          <span>{toolLabel}</span>
+          <strong>{event.detail ?? event.title}</strong>
+        </section>
+      </div>
+    );
+  }
+
   return (
-    <section className={`bubble bubble-${state}`}>
-      <div className="bubble-kicker">{stateCopy[state].label}</div>
-      <strong>{event.title}</strong>
-      <span>{event.message}</span>
+    <div className="bubble-wrapper" style={{ transform: `scale(${settings.cardScale})`, opacity: settings.cardOpacity }}>
+      <section className={`bubble bubble-${state}`}>
+        <div className="bubble-status-light" />
+        <div className="bubble-content">
+        <header className="bubble-header">
+          <span className="bubble-state">{stateCopy[state].label}</span>
+          <span className="bubble-tool">{toolLabel}</span>
+        </header>
+        <strong>{event.title}</strong>
+        <p>{event.message}</p>
+        {event.detail ? <code className="bubble-detail">{event.detail}</code> : null}
+        <footer className="bubble-footer">
+          <span>{stateCopy[state].line}</span>
+          <time>{new Date(event.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })}</time>
+        </footer>
+      </div>
     </section>
+    </div>
   );
 }
 
-function Clawd({ state, scale }: { state: PetState; scale: number }) {
+function Clawd({ state, settings }: { state: PetState; settings: CompanionSettings }) {
   return (
-    <section className={`clawd clawd-${state}`} style={{ transform: `scale(${scale})` }} aria-label={`Clawd ${stateCopy[state].label}`}>
-      <div className="aura" />
-      <div className="antenna antenna-left" />
-      <div className="antenna antenna-right" />
-      <div className="head">
-        <div className="tuft" />
-        <div className="eye eye-left" />
-        <div className="eye eye-right" />
-        <div className="cheek cheek-left" />
-        <div className="cheek cheek-right" />
-        <div className="mouth" />
-        <StateProp state={state} />
-      </div>
-      <div className="body">
-        <div className="badge"><Bot size={22} /></div>
-        <div className="arm arm-left" />
-        <div className="arm arm-right" />
-      </div>
-      <div className="foot foot-left" />
-      <div className="foot foot-right" />
+    <section className={`clawd clawd-${state}`} style={{ transform: `scale(${settings.clawdScale})`, opacity: settings.clawdOpacity }} aria-label={`Clawd ${stateCopy[state].label}`}>
+      <div className="clawd-glow" />
+      <img className="clawd-image" src={clawdImage} alt="" draggable={false} />
+      {settings.showStatusProp ? <StateProp state={state} /> : null}
       <div className="shadow" />
     </section>
   );
@@ -135,67 +202,173 @@ function Clawd({ state, scale }: { state: PetState; scale: number }) {
 function StateProp({ state }: { state: PetState }) {
   if (state === "tool_bash") return <Terminal className="state-prop terminal-prop" size={30} />;
   if (state === "tool_edit") return <Code2 className="state-prop edit-prop" size={30} />;
-  if (state === "tool_read" || state === "tool_search") return <Search className="state-prop search-prop" size={30} />;
+  if (state === "tool_read") return <FileText className="state-prop read-prop" size={30} />;
+  if (state === "tool_search") return <Search className="state-prop search-prop" size={30} />;
   if (state === "waiting_permission") return <Bell className="state-prop bell-prop" size={30} />;
   if (state === "done") return <Check className="state-prop check-prop" size={30} />;
-  if (state === "error") return <Wrench className="state-prop error-prop" size={30} />;
+  if (state === "error") return <X className="state-prop error-prop" size={30} />;
   return null;
 }
 
 function SettingsApp() {
-  const { settings, updateSettings, events, petState } = useCompanion();
-  const hookCommand = useMemo(() => `node ${process.cwd().replaceAll("\\", "/")}/dist/hook-forwarder/index.js`, []);
+  const { settings, updateSettings, connection, events, petState } = useCompanion();
+  const [copied, setCopied] = useState<string | null>(null);
+  const [activeSection, setActiveSection] = useState("overview");
+  const [now, setNow] = useState(Date.now());
+  const hookCommand = "node D:/build/GitLocal/claude-code-companion/dist/hook-forwarder/index.js";
+  const hookConfigPath = "C:/Users/Doulor/.claude/settings.json";
+  const launchPath = "D:/build/GitLocal/claude-code-companion/静默启动Clawd.vbs";
+  const hookSnippet = useMemo(() => buildHookSnippet(hookCommand), [hookCommand]);
+
+  useEffect(() => {
+    const interval = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(interval);
+  }, []);
+
+  useEffect(() => {
+    const shell = document.querySelector(".settings-shell");
+    const sections = ["overview", "connect", "appearance", "privacy"];
+    function updateActiveSection() {
+      const current = sections
+        .map(id => ({ id, top: document.getElementById(id)?.getBoundingClientRect().top ?? Number.POSITIVE_INFINITY }))
+        .filter(section => section.top < 180)
+        .sort((a, b) => b.top - a.top)[0];
+      if (current) setActiveSection(current.id);
+    }
+    shell?.addEventListener("scroll", updateActiveSection, { passive: true });
+    updateActiveSection();
+    return () => shell?.removeEventListener("scroll", updateActiveSection);
+  }, []);
 
   async function test(event: CompanionEvent) {
     await window.companion.sendTestEvent({ ...event, id: crypto.randomUUID(), timestamp: Date.now() });
   }
 
+  function jumpTo(section: string) {
+    setActiveSection(section);
+    document.getElementById(section)?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+
+  async function copy(text: string, key: string) {
+    await navigator.clipboard.writeText(text);
+    setCopied(key);
+    window.setTimeout(() => setCopied(current => current === key ? null : current), 1600);
+  }
+
   return (
     <main className="settings-shell">
+      <section className="window-bar">
+        <div className="window-title"><Sparkles size={16} />Clawd Companion</div>
+        <div className="window-actions">
+          <button title="最小化" onClick={() => window.companion.minimizeSettings()}>-</button>
+          <button title="最大化/还原" onClick={() => window.companion.toggleMaximizeSettings()}>□</button>
+          <button className="close" title="关闭配置" onClick={() => window.companion.closeSettings()}>×</button>
+        </div>
+      </section>
       <aside className="rail">
-        <div className="mark"><Bot size={28} /></div>
-        <button className="rail-button active" title="配置"><Gauge size={20} /></button>
-        <button className="rail-button" title="隐私"><Shield size={20} /></button>
-        <button className="rail-button" title="事件"><Radio size={20} /></button>
+        <div className="mark"><Sparkles size={26} /></div>
+        <button className={`rail-button ${activeSection === "overview" ? "active" : ""}`} title="总览" onClick={() => jumpTo("overview")}><Gauge size={20} /></button>
+        <button className={`rail-button ${activeSection === "connect" ? "active" : ""}`} title="连接" onClick={() => jumpTo("connect")}><PlugZap size={20} /></button>
+        <button className={`rail-button ${activeSection === "appearance" ? "active" : ""}`} title="桌宠" onClick={() => jumpTo("appearance")}><Bot size={20} /></button>
+        <button className={`rail-button ${activeSection === "privacy" ? "active" : ""}`} title="隐私" onClick={() => jumpTo("privacy")}><Shield size={20} /></button>
       </aside>
 
-      <section className="hero-panel">
+      <section className="hero-panel" id="overview">
         <div>
-          <p className="eyebrow">Claude Code Companion</p>
-          <h1>Clawd 正在监听本地 Claude Code 事件</h1>
-          <p className="subtle">透明桌宠、工具状态、完成提醒和可控隐私，都在这一个本地应用里。</p>
+          <p className="eyebrow">Clawd Companion</p>
+          <h1>{connection.connected ? "Clawd 正在跟随 Claude 会话" : "Clawd 等待 Claude 会话接入"}</h1>
+          <p className="subtle">{connection.connected ? `${connection.activeClientLabel ?? "Claude Code"} 最近在 ${timeAgo(connection.lastEventAt, now)} 发来事件。` : "本地监听已经准备好；打开 Claude CLI 或已配置 hooks 的 Claude Code 会话后会自动连接。"}</p>
+          <div className="hero-status-board">
+            <ConnectionPill connected={connection.connected} label={connection.activeClientLabel} />
+            <code>{shortSession(connection.activeSessionId)}</code>
+          </div>
         </div>
-        <div className="mini-stage"><Clawd state={petState} scale={0.72} /></div>
+        <div className="mini-stage"><div className="mini-pet"><Clawd state={petState} settings={settings} /></div></div>
       </section>
 
+      <section className="status-strip">
+        <StatusCard icon={<Radio size={18} />} label="连接状态" value={connection.connected ? "已连接" : connection.serverListening ? "等待会话" : "未监听"} meta={connection.activeClientLabel} tone={connection.connected ? "good" : connection.serverListening ? "wait" : "bad"} />
+        <StatusCard icon={<Timer size={18} />} label="最近事件" value={connection.lastEventAt ? timeAgo(connection.lastEventAt, now) : "还没收到"} tone={connection.lastEventAt ? "good" : "wait"} />
+        <StatusCard icon={<Shield size={18} />} label="会话" value={shortSession(connection.activeSessionId)} tone="neutral" />
+        <StatusCard icon={<MonitorCheck size={18} />} label="本地监听" value={connection.serverListening ? `127.0.0.1:${connection.port}` : "未监听"} tone={connection.serverListening ? "good" : "bad"} />
+      </section>
+
+      {connection.error ? <section className="connection-error"><Wrench size={18} />{connection.error}</section> : null}
+
       <section className="content-grid">
-        <Panel title="连接" icon={<Radio size={18} />}>
+        <Panel id="connect" title="Claude Code 连接" icon={<PlugZap size={18} />} wide>
+          <div className="connect-layout">
+            <div className="steps">
+              <Step number="1" title="保持 Clawd Companion 运行" text={`本地服务监听 ${connection.port}，Claude Code hooks 会把事件 POST 到这里。`} />
+              <Step number="2" title="把 hooks 写入 Claude Code 设置" text={`推荐位置：${hookConfigPath}。把右侧 JSON 合并到 settings.json 的 hooks 字段。`} />
+              <Step number="3" title="重新打开一个 Claude Code 会话" text="发送一条消息或运行工具后，下面的最近事件和状态映射会立刻亮起来。" />
+            </div>
+            <div className="code-card">
+              <div className="code-card-head">
+                <span>hooks 配置片段</span>
+                <button onClick={() => copy(hookSnippet, "hooks")}><Clipboard size={15} />{copied === "hooks" ? "已复制" : "复制"}</button>
+              </div>
+              <pre>{hookSnippet}</pre>
+            </div>
+          </div>
+          <div className="connection-detail-grid">
+            <ConnectionDetail label="状态" value={connection.connected ? "已连接" : connection.serverListening ? "等待 Claude 会话" : "本地服务未监听"} />
+            <ConnectionDetail label="客户端" value={connection.activeClientLabel ?? "未知客户端"} />
+            <ConnectionDetail label="会话 ID" value={shortSession(connection.activeSessionId)} />
+            <ConnectionDetail label="最后活动" value={connection.lastEventAt ? timeAgo(connection.lastEventAt, now) : "暂无"} />
+          </div>
+          <div className="command-row">
+            <span>Hook forwarder 命令</span>
+            <code>{hookCommand}</code>
+            <button onClick={() => copy(hookCommand, "cmd")}><Clipboard size={15} />{copied === "cmd" ? "已复制" : "复制"}</button>
+          </div>
+        </Panel>
+
+        <Panel id="appearance" title="桌宠外观" icon={<Bot size={18} />}>
+          <Toggle label="启用桌宠" checked={settings.petEnabled} onChange={petEnabled => updateSettings({ petEnabled })} />
+          <Toggle label="始终置顶" checked={settings.alwaysOnTop} onChange={alwaysOnTop => updateSettings({ alwaysOnTop })} />
+          <Toggle label="完全点击穿透" checked={settings.clickThrough} onChange={clickThrough => updateSettings({ clickThrough })} />
+          <Toggle label="显示气泡" checked={settings.showBubbles} onChange={showBubbles => updateSettings({ showBubbles })} />
+          <Toggle label="显示状态道具" checked={settings.showStatusProp} onChange={showStatusProp => updateSettings({ showStatusProp })} />
+          <Slider label="整体尺寸" min={0.7} max={1.45} step={0.05} value={settings.petScale} format={value => `${Math.round(value * 100)}%`} onChange={petScale => updateSettings({ petScale })} />
+          <Slider label="Clawd尺寸" min={0.7} max={1.35} step={0.05} value={settings.clawdScale} format={value => `${Math.round(value * 100)}%`} onChange={clawdScale => updateSettings({ clawdScale })} />
+          <Slider label="Clawd透明" min={0.45} max={1} step={0.05} value={settings.clawdOpacity} format={value => `${Math.round(value * 100)}%`} onChange={clawdOpacity => updateSettings({ clawdOpacity })} />
+          <Slider label="思维泡尺寸" min={0.75} max={1.35} step={0.05} value={settings.thoughtScale} format={value => `${Math.round(value * 100)}%`} onChange={thoughtScale => updateSettings({ thoughtScale })} />
+          <Slider label="思维泡透明" min={0.45} max={1} step={0.05} value={settings.thoughtOpacity} format={value => `${Math.round(value * 100)}%`} onChange={thoughtOpacity => updateSettings({ thoughtOpacity })} />
+          <Slider label="卡片尺寸" min={0.75} max={1.25} step={0.05} value={settings.cardScale} format={value => `${Math.round(value * 100)}%`} onChange={cardScale => updateSettings({ cardScale })} />
+          <Slider label="卡片透明" min={0.45} max={1} step={0.05} value={settings.cardOpacity} format={value => `${Math.round(value * 100)}%`} onChange={cardOpacity => updateSettings({ cardOpacity })} />
+          <div className="feedback-mode-list">
+            {feedbackRows.map(row => <FeedbackModeRow key={row.state} label={row.label} value={settings.feedbackModes?.[row.state] ?? "card"} onChange={mode => updateSettings({ feedbackModes: { ...(settings.feedbackModes ?? {}), [row.state]: mode } })} />)}
+          </div>
+        </Panel>
+
+        <Panel title="应用行为" icon={<MousePointer2 size={18} />}>
+          <Toggle label="开机自启" checked={settings.launchAtLogin} onChange={launchAtLogin => updateSettings({ launchAtLogin })} />
+          <Toggle label="启动时打开配置面板" checked={settings.openSettingsOnStart} onChange={openSettingsOnStart => updateSettings({ openSettingsOnStart })} />
+          <Toggle label="完成时系统通知" checked={settings.doneSound} onChange={doneSound => updateSettings({ doneSound })} />
+          <Slider label="气泡停留" min={3} max={18} step={1} value={settings.bubbleDuration} format={value => `${value} 秒`} onChange={bubbleDuration => updateSettings({ bubbleDuration })} />
+          <Slider label="事件历史" min={12} max={100} step={4} value={settings.eventHistoryLimit} format={value => `${value} 条`} onChange={eventHistoryLimit => updateSettings({ eventHistoryLimit })} />
+          <div className="launch-note">
+            想摆脱命令行窗口，请双击项目根目录的 <code>静默启动Clawd.vbs</code>。退出应用请用托盘菜单。
+            <button className="inline-action" onClick={() => copy(launchPath, "launch")}>{copied === "launch" ? "已复制路径" : "复制静默启动路径"}</button>
+          </div>
+        </Panel>
+
+        <Panel id="privacy" title="隐私和端口" icon={<Shield size={18} />}>
           <Field label="事件端口">
             <input value={settings.port} onChange={event => updateSettings({ port: Number(event.target.value) || defaultSettings.port })} />
           </Field>
           <Field label="本地 token">
             <input value={settings.token} onChange={event => updateSettings({ token: event.target.value })} />
           </Field>
-          <div className="command-box">
-            <span>Hook forwarder</span>
-            <code>{hookCommand}</code>
-          </div>
-        </Panel>
-
-        <Panel title="桌宠行为" icon={<MousePointer2 size={18} />}>
-          <Toggle label="始终置顶" checked={settings.alwaysOnTop} onChange={alwaysOnTop => updateSettings({ alwaysOnTop })} />
-          <Toggle label="点击穿透" checked={settings.clickThrough} onChange={clickThrough => updateSettings({ clickThrough })} />
-          <Toggle label="显示气泡" checked={settings.showBubbles} onChange={showBubbles => updateSettings({ showBubbles })} />
-          <label className="slider-row">
-            <span>尺寸</span>
-            <input type="range" min="0.75" max="1.25" step="0.05" value={settings.petScale} onChange={event => updateSettings({ petScale: Number(event.target.value) })} />
-            <b>{Math.round(settings.petScale * 100)}%</b>
-          </label>
-        </Panel>
-
-        <Panel title="隐私模式" icon={<Shield size={18} />}>
           <Segmented value={settings.privacyMode} onChange={privacyMode => updateSettings({ privacyMode })} />
-          <p className="note">安全模式只显示工具类型和状态；标准模式可显示文件名；详细模式预留给后续摘要，不会默认展示完整 prompt 或命令输出。</p>
+          <p className="note">安全模式只显示工具类型；标准模式显示文件名和搜索模式；详细模式可显示被截断的命令摘要，但仍不会展示完整 prompt 或命令输出。</p>
+        </Panel>
+
+        <Panel title="状态配对" icon={<Radio size={18} />}>
+          <div className="mapping-list">
+            {mappingRows.map(row => <MappingRow key={`${row.source}-${row.tool ?? row.state}`} row={row} />)}
+          </div>
         </Panel>
 
         <Panel title="测试事件" icon={<Play size={18} />}>
@@ -206,11 +379,13 @@ function SettingsApp() {
 
         <Panel title="最近事件" icon={<Bell size={18} />} wide>
           <div className="event-list">
-            {events.length === 0 ? <div className="empty">还没有收到事件。可以先点测试事件，或配置 Claude Code hooks。</div> : events.map(event => (
+            {events.length === 0 ? <div className="empty">还没有收到事件。先复制 hooks 配置，或点击测试事件看状态变化。</div> : events.map(event => (
               <article key={event.id} className="event-row">
                 <span>{new Date(event.timestamp).toLocaleTimeString()}</span>
                 <strong>{event.title}</strong>
                 <p>{event.message}</p>
+                <small>{timeAgo(event.timestamp, now)}</small>
+                <em>{stateCopy[stateFromEvent(event)].label}</em>
               </article>
             ))}
           </div>
@@ -220,12 +395,50 @@ function SettingsApp() {
   );
 }
 
-function Panel({ title, icon, wide, children }: { title: string; icon: React.ReactNode; wide?: boolean; children: React.ReactNode }) {
-  return <section className={`panel ${wide ? "wide" : ""}`}><header>{icon}<h2>{title}</h2></header>{children}</section>;
+function Panel({ id, title, icon, wide, children }: { id?: string; title: string; icon: React.ReactNode; wide?: boolean; children: React.ReactNode }) {
+  return <section id={id} className={`panel ${wide ? "wide" : ""}`}><header>{icon}<h2>{title}</h2></header>{children}</section>;
+}
+
+function StatusCard({ icon, label, value, meta, tone }: { icon: React.ReactNode; label: string; value: string; meta?: string; tone: "good" | "bad" | "wait" | "neutral" }) {
+  return <article className={`status-card ${tone}`}>{icon}<span>{label}</span><strong>{value}</strong>{meta ? <small>{meta}</small> : null}</article>;
+}
+
+function ConnectionPill({ connected, label }: { connected: boolean; label?: string }) {
+  return <span className={`connection-pill ${connected ? "connected" : "waiting"}`}><i />{connected ? "已连接" : "等待连接"}{label ? <small>{label}</small> : null}</span>;
+}
+
+function ConnectionDetail({ label, value }: { label: string; value: string }) {
+  return <article className="connection-detail"><span>{label}</span><strong>{value}</strong></article>;
+}
+
+function Step({ number, title, text }: { number: string; title: string; text: string }) {
+  return <article className="step"><b>{number}</b><div><strong>{title}</strong><p>{text}</p></div></article>;
+}
+
+function MappingRow({ row }: { row: { source: string; tool?: string; state: PetState; title: string } }) {
+  return (
+    <article className="mapping-row">
+      <div><strong>{row.source}</strong><span>{row.tool ?? row.title}</span></div>
+      <i />
+      <em className={`tone-${stateCopy[row.state].tone}`}>{stateCopy[row.state].label}</em>
+    </article>
+  );
 }
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return <label className="field"><span>{label}</span>{children}</label>;
+}
+
+function FeedbackModeRow({ label, value, onChange }: { label: string; value: FeedbackMode; onChange: (value: FeedbackMode) => void }) {
+  return (
+    <div className="feedback-mode-row">
+      <span>{label}</span>
+      <div>
+        <button className={value === "thought" ? "active" : ""} onClick={() => onChange("thought")}>气泡</button>
+        <button className={value === "card" ? "active" : ""} onClick={() => onChange("card")}>卡片</button>
+      </div>
+    </div>
+  );
 }
 
 function Toggle({ label, checked, onChange }: { label: string; checked: boolean; onChange: (value: boolean) => void }) {
@@ -238,6 +451,25 @@ function Toggle({ label, checked, onChange }: { label: string; checked: boolean;
   );
 }
 
+function Slider({ label, min, max, step, value, format, onChange }: { label: string; min: number; max: number; step: number; value: number; format: (value: number) => string; onChange: (value: number) => void }) {
+  const fillPercent = ((value - min) / (max - min)) * 100;
+  return (
+    <label className="slider-row">
+      <span>{label}</span>
+      <input
+        type="range"
+        min={min}
+        max={max}
+        step={step}
+        value={value}
+        style={{ "--slider-fill": `${fillPercent}%` } as React.CSSProperties}
+        onChange={event => onChange(Number(event.target.value))}
+      />
+      <b>{format(value)}</b>
+    </label>
+  );
+}
+
 function Segmented({ value, onChange }: { value: PrivacyMode; onChange: (value: PrivacyMode) => void }) {
   const items: Array<{ value: PrivacyMode; label: string }> = [
     { value: "safe", label: "安全" },
@@ -245,6 +477,41 @@ function Segmented({ value, onChange }: { value: PrivacyMode; onChange: (value: 
     { value: "detailed", label: "详细" }
   ];
   return <div className="segmented">{items.map(item => <button key={item.value} className={value === item.value ? "active" : ""} onClick={() => onChange(item.value)}>{item.label}</button>)}</div>;
+}
+
+function privacyLabel(mode: PrivacyMode) {
+  if (mode === "safe") return "安全";
+  if (mode === "standard") return "标准";
+  return "详细";
+}
+
+function shortSession(sessionId?: string) {
+  if (!sessionId) return "无会话";
+  return sessionId.length > 12 ? `${sessionId.slice(0, 6)}...${sessionId.slice(-4)}` : sessionId;
+}
+
+function timeAgo(timestamp: number | undefined, now = Date.now()) {
+  if (!timestamp) return "暂无";
+  const seconds = Math.max(1, Math.round((now - timestamp) / 1000));
+  if (seconds < 60) return `${seconds} 秒前`;
+  const minutes = Math.round(seconds / 60);
+  if (minutes < 60) return `${minutes} 分钟前`;
+  const hours = Math.round(minutes / 60);
+  return `${hours} 小时前`;
+}
+
+function buildHookSnippet(command: string) {
+  const hook = { matcher: "*", hooks: [{ type: "command", command }] };
+  return JSON.stringify({
+    hooks: {
+      SessionStart: [hook],
+      UserPromptSubmit: [hook],
+      PreToolUse: [hook],
+      PostToolUse: [hook],
+      Notification: [hook],
+      Stop: [hook]
+    }
+  }, null, 2);
 }
 
 function App() {
