@@ -161,8 +161,12 @@ function useCompanion() {
 function PetApp() {
   const { settings, updateSettings, currentEvent, petState, toolRibbon } = useCompanion();
   const editMode = settings.editPosition;
-  const [dragTarget, setDragTarget] = useState<string | null>(null);
+  const dragKey = useRef<string | null>(null);
   const dragOrigin = useRef<{ mouseX: number; mouseY: number; offX: number; offY: number } | null>(null);
+  const updateRef = useRef(updateSettings);
+  const offsetsRef = useRef(settings.positionOffsets ?? {});
+  updateRef.current = updateSettings;
+  offsetsRef.current = settings.positionOffsets ?? {};
 
   useEffect(() => {
     if (editMode) void window.companion.setPetInteractive(true);
@@ -170,20 +174,19 @@ function PetApp() {
   }, [editMode]);
 
   useEffect(() => {
-    if (!dragTarget) return;
     function onMouseMove(e: MouseEvent) {
-      if (!dragOrigin.current) return;
+      if (!dragKey.current || !dragOrigin.current) return;
       const dx = e.clientX - dragOrigin.current.mouseX;
       const dy = e.clientY - dragOrigin.current.mouseY;
-      const key = dragTarget as "clawd" | "bubble" | "ribbon";
-      const offsets = settings.positionOffsets ?? {};
-      updateSettings({ positionOffsets: { ...offsets, [key]: { x: dragOrigin.current.offX + dx, y: dragOrigin.current.offY + dy } } });
+      const key = dragKey.current as "clawd" | "bubble" | "ribbon";
+      const offsets = offsetsRef.current;
+      updateRef.current({ positionOffsets: { ...offsets, [key]: { x: dragOrigin.current.offX + dx, y: dragOrigin.current.offY + dy } } });
     }
-    function onMouseUp() { setDragTarget(null); dragOrigin.current = null; }
+    function onMouseUp() { dragKey.current = null; dragOrigin.current = null; }
     window.addEventListener("mousemove", onMouseMove);
     window.addEventListener("mouseup", onMouseUp);
     return () => { window.removeEventListener("mousemove", onMouseMove); window.removeEventListener("mouseup", onMouseUp); };
-  }, [dragTarget, settings.positionOffsets, updateSettings]);
+  }, []);
 
   if (!settings.petEnabled) return <main className="pet-stage pet-disabled" />;
 
@@ -192,7 +195,7 @@ function PetApp() {
   function startDrag(key: string, e: React.MouseEvent) {
     if (!editMode) return;
     e.stopPropagation();
-    setDragTarget(key);
+    dragKey.current = key;
     dragOrigin.current = { mouseX: e.clientX, mouseY: e.clientY, offX: offsets[key as keyof typeof offsets]?.x ?? 0, offY: offsets[key as keyof typeof offsets]?.y ?? 0 };
   }
 
@@ -214,7 +217,7 @@ function PetApp() {
         ) : null}
         {settings.showBubbles && currentEvent && getFeedbackMode(currentEvent, settings) !== "ribbon" ? (
           <div
-            className={`bubble-wrapper edit-drag ${dragTarget === "bubble" ? "dragging" : ""}`}
+            className="bubble-wrapper edit-drag"
             style={{ transform: `translate(${offsets.bubble?.x ?? 0}px, ${offsets.bubble?.y ?? 0}px)` }}
             onMouseDown={e => startDrag("bubble", e)}
           >
@@ -222,7 +225,7 @@ function PetApp() {
           </div>
         ) : null}
         <div
-          className={`clawd drag-root edit-drag ${dragTarget === "clawd" ? "dragging" : ""}`}
+          className="clawd drag-root edit-drag"
           style={{ transform: `translate(${offsets.clawd?.x ?? 0}px, ${offsets.clawd?.y ?? 0}px) scale(${settings.clawdScale})`, opacity: settings.clawdOpacity }}
           onMouseDown={e => startDrag("clawd", e)}
         >
@@ -233,7 +236,7 @@ function PetApp() {
         </div>
         {settings.showBubbles && toolRibbon.length > 0 ? (
           <div
-            className={`tool-ribbon edit-drag ${dragTarget === "ribbon" ? "dragging" : ""}`}
+            className="tool-ribbon edit-drag"
             style={{ transform: `translate(${offsets.ribbon?.x ?? 0}px, ${offsets.ribbon?.y ?? 0}px)`, "--bubble-scale": settings.bubbleScale, "--bubble-opacity": settings.bubbleOpacity } as React.CSSProperties}
             onMouseDown={e => startDrag("ribbon", e)}
           >
