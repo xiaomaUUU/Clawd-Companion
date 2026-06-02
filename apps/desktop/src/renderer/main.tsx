@@ -188,15 +188,14 @@ function PetApp() {
         } else if (zoneKey === "ribbon") {
           updateSettings({ bubbleScale: Math.max(0.6, Math.min(2, ox + (e.clientX - mx) / 144)) });
         } else if (zoneKey.startsWith("edge")) {
-          // 拖动窗口边缘调整 petScale (窗口整体大小)
-          const base = 260;
-          onChangeScale: {
-            let ns: number;
-            if (zoneKey === "edgeE" || zoneKey === "edgeW") ns = Math.max(0.7, Math.min(2, ox + (e.clientX - mx) / base));
-            else if (zoneKey === "edgeN" || zoneKey === "edgeS") ns = Math.max(0.7, Math.min(2, oy + (e.clientY - my) / 392));
-            else ns = Math.max(0.7, Math.min(2, ox + oy + (e.clientX - mx + e.clientY - my) / (base + 392)));
-            updateSettings({ petScale: ns });
-          }
+          // 拖动窗口边缘调整 windowScale (窗口大小), 不影响内容缩放
+          const dx = e.clientX - mx;
+          const dy = e.clientY - my;
+          let ns: number;
+          if (zoneKey === "edgeE" || zoneKey === "edgeW") ns = ox + dx / 260;
+          else if (zoneKey === "edgeN" || zoneKey === "edgeS") ns = oy + dy / 392;
+          else ns = ox + (dx + dy) / 652;
+          updateSettings({ windowScale: Math.max(0.7, Math.min(2.5, ns)) });
         }
       } else {
         const nx = ox + e.clientX - mx;
@@ -230,7 +229,8 @@ function PetApp() {
     e.stopPropagation();
     dragging.current = `resize-${k}`;
     if (k.startsWith("edge")) {
-      dragStart.current = { mx: e.clientX, my: e.clientY, ox: settings.petScale, oy: settings.petScale };
+      const ws = settings.windowScale || settings.petScale;
+      dragStart.current = { mx: e.clientX, my: e.clientY, ox: ws, oy: ws };
     } else {
       const s = scaleRef.current;
       dragStart.current = { mx: e.clientX, my: e.clientY, ox: s[k as keyof typeof s] ?? 1, oy: s[k as keyof typeof s] ?? 1 };
