@@ -41,6 +41,8 @@ declare global {
       getAppVersion: () => Promise<string>;
       triggerIdleBubble: () => Promise<void>;
       onTriggerIdleBubble: (callback: () => void) => () => void;
+      syncIdleBubble: (sprite: string | null) => Promise<void>;
+      onIdleBubbleSync: (callback: (sprite: string | null) => void) => () => void;
       onUpdateStatus: (callback: (status: UpdateStatus) => void) => () => void;
     };
   }

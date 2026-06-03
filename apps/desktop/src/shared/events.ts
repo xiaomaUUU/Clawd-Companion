@@ -125,6 +125,7 @@ export interface CompanionSettings {
   zoneViewW?: number;
   zoneViewH?: number;
   idleAnim?: IdleAnimConfig;
+  stateAnimations?: Record<string, string>;
 }
 
 export interface IdleAnimConfig {
@@ -202,7 +203,7 @@ export const defaultSettings: CompanionSettings = {
   zoneSizes: {},
   idleAnim: {
     enabled: true,
-    selectedSprites: ["idle", "thinking", "tool_read", "tool_edit", "tool_bash", "waiting_permission", "done", "error"],
+    selectedSprites: ["idle", "thinking", "tool_read", "tool_edit", "waiting_permission", "done", "error"],
     intervalMin: 15,
     intervalMax: 40,
     repeatMin: 2,

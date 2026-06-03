@@ -784,6 +784,9 @@ ipcMain.handle("update:install", () => {
 });
 ipcMain.handle("update:get-status", () => updateStatus);
 ipcMain.handle("app:get-version", () => app.getVersion());
+ipcMain.handle("idle-bubble:sync", (_, sprite: string | null) => {
+  settingsWindow?.webContents.send("companion:idle-bubble-sync", sprite);
+});
 ipcMain.handle("test:idle-bubble", () => {
   petWindow?.webContents.send("companion:test-idle-bubble");
   settingsWindow?.webContents.send("companion:test-idle-bubble");

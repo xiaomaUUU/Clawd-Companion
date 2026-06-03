@@ -1205,32 +1205,105 @@ input[type="range"]:focus { box-shadow: none; }
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 6px;
-  padding: 10px;
+  gap: 4px;
+  padding: 8px;
   border-radius: 8px;
   border: 2px solid var(--line);
   background: var(--panel);
   cursor: pointer;
   transition: border-color 0.15s, background 0.15s;
+  min-width: 96px;
+  overflow: visible;
 }
 .idle-sprite-preview.checked {
   border-color: var(--honey);
   background: rgba(234, 187, 88, 0.12);
 }
-.idle-sprite-preview .clawd-sprite {
-  width: 84px;
-  height: 80px;
-  background-size: 672px 160px;
-  pointer-events: none;
+.idle-sprite-preview .sprite-preview-box {
+  width: 72px;
+  height: 72px;
+  overflow: hidden;
+  position: relative;
 }
-.idle-sprite-preview .clawd-sprite.clawd-sprite-waiting_permission {
-  height: 50px;
-  background-size: 336px 50px;
+.idle-sprite-preview .sprite-preview-box .clawd-sprite {
+  pointer-events: none;
+  transform-origin: 0 0;
+  position: absolute;
+  top: 0;
+  left: 0;
 }
 .idle-sprite-label {
   font-size: 11px;
   color: var(--muted);
   font-weight: 600;
+}
+
+.state-anim-settings {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.state-anim-grid {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.state-anim-col {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+.state-anim-col-label {
+  font-size: 11px;
+  color: var(--muted);
+  font-weight: 600;
+  white-space: nowrap;
+}
+.state-anim-picker {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 12px;
+}
+.state-anim-picker-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--ink);
+  margin-bottom: 10px;
+}
+.state-anim-picker-close {
+  background: none;
+  border: none;
+  font-size: 18px;
+  color: var(--muted);
+  cursor: pointer;
+  padding: 0 4px;
+}
+.state-anim-picker-grid {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: flex-start;
+}
+.state-anim-picker-grid .idle-sprite-preview {
+  padding: 8px;
+}
+.state-anim-picker-grid .idle-sprite-preview .sprite-preview-box {
+  width: 64px;
+  height: 64px;
+}
+.sprite-preview-box .clawd-sprite-waiting_permission {
+  margin-top: 28px;
+}
+.sprite-preview-box .clawd-gif-headset_focus {
+  margin-top: 14px;
+}
+.sprite-preview-box .clawd-gif-working_hardhat {
+  margin-top: 14px;
 }
 
 .range-slider-row {

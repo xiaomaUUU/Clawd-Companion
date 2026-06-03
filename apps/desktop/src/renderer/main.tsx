@@ -33,9 +33,9 @@ import "./styles.css";
 const clawdGifName: Record<PetState, string> = {
   idle: "clawd_png_idle",
   thinking: "thinking_speech",
-  tool_read: "headset_focus",
+  tool_read: "thinking_speech",
   tool_edit: "working_hardhat",
-  tool_bash: "working_hardhat",
+  tool_bash: "headset_focus",
   tool_search: "thinking_speech",
   tool_mcp: "thinking_speech",
   waiting_permission: "permission_prompt",
@@ -341,6 +341,11 @@ function PetApp() {
     return () => { idleTimers.current.forEach(clearTimeout); idleTimers.current = []; };
   }, [petState, editMode, settings.idleAnim]);
 
+  // 同步 idleBubbleSprite 到设置面板
+  useEffect(() => {
+    void window.companion.syncIdleBubble(idleBubbleSprite);
+  }, [idleBubbleSprite]);
+
   useEffect(() => {
     if (editMode) {
       void window.companion.setPetInteractive(false);
@@ -509,7 +514,7 @@ function PetApp() {
               </div>
             ) : null}
             <div className={`clawd clawd-${previewState}`} style={{ transform: `translate(${offsets.clawd?.x ?? 0}px, ${offsets.clawd?.y ?? 0}px) scale(${settings.clawdScale})`, opacity: settings.clawdOpacity }}>
-              <ClawdSprite state={previewState} idleBubble={idleBubbleSprite} />
+              <ClawdSprite state={previewState} idleBubble={idleBubbleSprite} eventType={previewEvent.event} stateAnimations={settings.stateAnimations} />
               {settings.showStatusProp && previewState !== "idle" ? <StateProp state={previewState} /> : null}
             </div>
             {settings.showBubbles ? (
@@ -594,7 +599,7 @@ function PetApp() {
           </div>
         ) : null}
         <div className={`clawd clawd-${petState}`} style={{ transform: `translate(${offsets.clawd?.x ?? 0}px, ${offsets.clawd?.y ?? 0}px) scale(${settings.clawdScale})`, opacity: settings.clawdOpacity }}>
-          <ClawdSprite state={petState} idleBubble={idleBubbleSprite} />
+          <ClawdSprite state={petState} idleBubble={idleBubbleSprite} eventType={currentEvent?.event} stateAnimations={settings.stateAnimations} />
           {settings.showStatusProp && petState !== "idle" ? <StateProp state={petState} /> : null}
         </div>
         {settings.showBubbles && toolStreams.length > 0 ? (
@@ -748,53 +753,18 @@ function ToolStreams({ streams, offset }: { streams: ToolStream[]; offset?: { x:
 }
 
 function Clawd({ state, settings, forceIdleBubble }: { state: PetState; settings: CompanionSettings; forceIdleBubble?: string | null }) {
-  const [idleSprite, setIdleSprite] = useState<string | null>(null);
-  const idleTimers = useRef<number[]>([]);
+  const [syncedSprite, setSyncedSprite] = useState<string | null>(null);
 
   useEffect(() => {
-    const cfg = settings.idleAnim;
-    if (!cfg?.enabled || state !== "idle") {
-      setIdleSprite(null);
-      idleTimers.current.forEach(clearTimeout);
-      idleTimers.current = [];
-      return;
-    }
-    const pool = cfg.selectedSprites.length > 0 ? cfg.selectedSprites : ["idle"];
-    function playBatch() {
-      const sprite = pool[Math.floor(Math.random() * pool.length)];
-      const range = cfg!.repeatMax - cfg!.repeatMin;
-      const repeats = cfg!.repeatMin + (range > 0 ? Math.floor(Math.random() * (range + 1)) : 0);
-      let count = 0;
-      function show() {
-        setIdleSprite(sprite);
-        const t = window.setTimeout(() => {
-          setIdleSprite(null);
-          count++;
-          if (count < repeats) {
-            idleTimers.current = [window.setTimeout(show, 1500)];
-          } else {
-            scheduleNext();
-          }
-        }, 2500);
-        idleTimers.current = [t];
-      }
-      show();
-    }
-    function scheduleNext() {
-      const iMin = cfg!.intervalMin * 1000;
-      const iMax = cfg!.intervalMax * 1000;
-      const delay = iMin + Math.random() * (iMax - iMin);
-      idleTimers.current = [window.setTimeout(playBatch, delay)];
-    }
-    scheduleNext();
-    return () => { idleTimers.current.forEach(clearTimeout); idleTimers.current = []; };
-  }, [state, settings.idleAnim]);
+    const off = window.companion.onIdleBubbleSync(setSyncedSprite);
+    return () => off();
+  }, []);
 
-  const effectiveBubble = forceIdleBubble ?? idleSprite;
+  const effectiveBubble = forceIdleBubble ?? syncedSprite;
 
   return (
     <section className={`clawd clawd-${state}`} style={{ transform: `scale(${settings.clawdScale})`, opacity: settings.clawdOpacity }} aria-label={`Clawd ${stateCopy[state].label}`}>
-      <ClawdSprite state={state} idleBubble={effectiveBubble} />
+      <ClawdSprite state={state} idleBubble={effectiveBubble} stateAnimations={settings.stateAnimations} />
       {settings.showStatusProp && state !== "idle" ? <StateProp state={state} /> : null}
     </section>
   );
@@ -805,13 +775,17 @@ const idleBubbleGifClass: Record<string, string> = {
   thinking: "thinking_speech",
   tool_read: "headset_focus",
   tool_edit: "working_hardhat",
-  tool_bash: "working_hardhat",
   waiting_permission: "permission_prompt",
   done: "celebrate_bunny",
   error: "error_dead"
 };
 
-function ClawdSprite({ state, idleBubble }: { state: PetState; idleBubble?: string | null }) {
+const eventSpriteOverride: Partial<Record<CompanionEvent["event"], { sprite: string; gif: string }>> = {
+  session_start: { sprite: "tool_read", gif: "headset_focus" },
+  prompt_submit: { sprite: "done", gif: "celebrate_bunny" }
+};
+
+function ClawdSprite({ state, idleBubble, eventType, stateAnimations }: { state: PetState; idleBubble?: string | null; eventType?: CompanionEvent["event"]; stateAnimations?: Record<string, string> }) {
   if (idleBubble) {
     const gifClass = idleBubbleGifClass[idleBubble] ?? idleBubble;
     return (
@@ -831,7 +805,17 @@ function ClawdSprite({ state, idleBubble }: { state: PetState; idleBubble?: stri
       </>
     );
   }
-  const spriteState = state === "tool_mcp" ? "thinking" : state;
+  // 优先级：用户自定义 > 事件覆盖 > 默认映射
+  const userSprite = stateAnimations?.[state];
+  if (userSprite) {
+    const gifClass = idleBubbleGifClass[userSprite] ?? userSprite;
+    return <span className={`clawd-sprite clawd-sprite-${userSprite} clawd-gif-${gifClass}`} aria-hidden="true" />;
+  }
+  const override = eventType ? eventSpriteOverride[eventType] : undefined;
+  if (override) {
+    return <span className={`clawd-sprite clawd-sprite-${override.sprite} clawd-gif-${override.gif}`} aria-hidden="true" />;
+  }
+  const spriteState = state === "tool_mcp" ? "thinking" : state === "tool_read" ? "thinking" : state === "tool_bash" ? "tool_read" : state;
   return <span className={`clawd-sprite clawd-sprite-${spriteState} clawd-gif-${clawdGifName[state]}`} aria-hidden="true" />;
 }
 
@@ -1072,6 +1056,15 @@ function SettingsApp() {
           </Panel>
         )}
 
+        {showAdvanced && (
+          <Panel title="动作动画映射" icon={<Bot size={18} />} wide>
+            <StateAnimSettings
+              stateAnimations={settings.stateAnimations ?? {}}
+              onChange={sa => updateSettings({ stateAnimations: sa })}
+            />
+          </Panel>
+        )}
+
         <Panel title="最近事件" icon={<Bell size={18} />} wide>
           <div className="event-list">
             {events.length === 0 ? <div className="empty">还没有收到事件。先复制 hooks 配置，或点击测试事件看状态变化。</div> : events.map(event => (
@@ -1306,15 +1299,14 @@ function buildHookSnippet(command: string) {
   }, null, 2);
 }
 
-const idleSpriteOptions: Array<{ key: string; label: string }> = [
-  { key: "idle", label: "idle_bubble" },
-  { key: "thinking", label: "thinking_speech" },
-  { key: "tool_read", label: "headset_focus" },
-  { key: "tool_edit", label: "working_hardhat" },
-  { key: "tool_bash", label: "bash" },
-  { key: "waiting_permission", label: "permission_prompt" },
-  { key: "done", label: "celebrate_bunny" },
-  { key: "error", label: "error_dead" }
+const idleSpriteOptions: Array<{ key: string; label: string; w: number; h: number }> = [
+  { key: "idle", label: "idle_bubble", w: 168, h: 160 },
+  { key: "thinking", label: "thinking_speech", w: 168, h: 209 },
+  { key: "tool_read", label: "headset_focus", w: 168, h: 145 },
+  { key: "tool_edit", label: "working_hardhat", w: 168, h: 133 },
+  { key: "waiting_permission", label: "permission_prompt", w: 168, h: 100 },
+  { key: "done", label: "celebrate_bunny", w: 168, h: 208 },
+  { key: "error", label: "error_dead", w: 168, h: 182 }
 ];
 
 function IdleAnimSettings({ config, onChange }: { config: IdleAnimConfig; onChange: (cfg: IdleAnimConfig) => void }) {
@@ -1337,7 +1329,12 @@ function IdleAnimSettings({ config, onChange }: { config: IdleAnimConfig; onChan
             className={`idle-sprite-preview ${config.selectedSprites.includes(opt.key) ? "checked" : ""}`}
             onClick={() => toggleSprite(opt.key)}
           >
-            <span className={`clawd-sprite clawd-sprite-${opt.key} clawd-gif-${idleBubbleGifClass[opt.key] ?? opt.key}`} />
+            <div className="sprite-preview-box">
+              <span
+                className={`clawd-sprite clawd-sprite-${opt.key} clawd-gif-${idleBubbleGifClass[opt.key] ?? opt.key}`}
+                style={{ transform: `scale(${72 / Math.max(opt.w, opt.h)})` }}
+              />
+            </div>
             <span className="idle-sprite-label">{opt.label}</span>
           </button>
         ))}
@@ -1365,6 +1362,92 @@ function IdleAnimSettings({ config, onChange }: { config: IdleAnimConfig; onChan
         onChange={(low, high) => onChange({ ...config, repeatMin: low, repeatMax: high })}
       />
       <p className="note">待机时在勾选的动画中随机挑选播放。若未勾选任何动画则默认使用 idle_bubble。</p>
+    </div>
+  );
+}
+
+const stateAnimEntries: Array<{ state: PetState; label: string; defaultSprite: string }> = [
+  { state: "thinking", label: "思考 / 新消息", defaultSprite: "thinking" },
+  { state: "tool_read", label: "读取文件", defaultSprite: "thinking" },
+  { state: "tool_edit", label: "编辑文件", defaultSprite: "tool_edit" },
+  { state: "tool_bash", label: "执行命令", defaultSprite: "tool_read" },
+  { state: "tool_search", label: "搜索资料", defaultSprite: "thinking" },
+  { state: "waiting_permission", label: "等待确认", defaultSprite: "waiting_permission" },
+  { state: "done", label: "处理完成", defaultSprite: "done" },
+  { state: "error", label: "错误", defaultSprite: "error" }
+];
+
+function StateAnimSettings({ stateAnimations, onChange }: { stateAnimations: Record<string, string>; onChange: (sa: Record<string, string>) => void }) {
+  const [openKey, setOpenKey] = useState<string | null>(null);
+
+  function selectSprite(state: string, sprite: string) {
+    onChange({ ...stateAnimations, [state]: sprite });
+    setOpenKey(null);
+  }
+
+  function resetState(state: string) {
+    const next = { ...stateAnimations };
+    delete next[state];
+    onChange(next);
+    setOpenKey(null);
+  }
+
+  return (
+    <div className="state-anim-settings">
+      <p className="note" style={{ marginTop: 0 }}>点击预览框展开选择器，再次点击其他动作自动收起。</p>
+      <div className="state-anim-grid">
+        {stateAnimEntries.map(entry => {
+          const currentSprite = stateAnimations[entry.state] ?? entry.defaultSprite;
+          const isOpen = openKey === entry.state;
+          return (
+            <div key={entry.state} className="state-anim-col">
+              <span className="state-anim-col-label">{entry.label}</span>
+              <button
+                className={`idle-sprite-preview ${isOpen ? "checked" : ""}`}
+                onClick={() => setOpenKey(isOpen ? null : entry.state)}
+              >
+                <div className="sprite-preview-box">
+                  <span
+                    className={`clawd-sprite clawd-sprite-${currentSprite} clawd-gif-${idleBubbleGifClass[currentSprite] ?? currentSprite}`}
+                    style={{ transform: `scale(${72 / Math.max(168, 168)})` }}
+                  />
+                </div>
+              </button>
+            </div>
+          );
+        })}
+      </div>
+      {openKey && (
+        <div className="state-anim-picker">
+          <span className="state-anim-picker-title">
+            选择「{stateAnimEntries.find(e => e.state === openKey)?.label}」的动画
+            <button className="state-anim-picker-close" onClick={() => setOpenKey(null)}>×</button>
+          </span>
+          <div className="state-anim-picker-grid">
+            {idleSpriteOptions.map(opt => {
+              const currentSprite = stateAnimations[openKey!] ?? stateAnimEntries.find(e => e.state === openKey!)!.defaultSprite;
+              return (
+                <button
+                  key={opt.key}
+                  className={`idle-sprite-preview ${currentSprite === opt.key ? "checked" : ""}`}
+                  onClick={() => selectSprite(openKey!, opt.key)}
+                >
+                  <div className="sprite-preview-box">
+                    <span
+                      className={`clawd-sprite clawd-sprite-${opt.key} clawd-gif-${idleBubbleGifClass[opt.key] ?? opt.key}`}
+                      style={{ transform: `scale(${72 / Math.max(opt.w, opt.h)})` }}
+                    />
+                  </div>
+                  <span className="idle-sprite-label">{opt.label}</span>
+                </button>
+              );
+            })}
+            <button className="idle-sprite-preview reset" onClick={() => resetState(openKey!)}>
+              <span className="idle-sprite-label">重置默认</span>
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
