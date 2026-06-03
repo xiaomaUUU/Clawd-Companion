@@ -12,8 +12,8 @@ import { defaultSettings } from "../shared/events.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const isDev = Boolean(process.env.VITE_DEV_SERVER_URL);
-const devIconPath = join(__dirname, "../../build/Bubble.png");
-const prodIconPath = join(process.resourcesPath, "build/Bubble.png");
+const devIconPath = join(__dirname, "../../build/icon.ico");
+const prodIconPath = join(process.resourcesPath, "build/icon.ico");
 const iconPath = existsSync(devIconPath) ? devIconPath : prodIconPath;
 const appDataDir = join(app.getPath("userData"), "clawd-companion");
 const settingsPath = join(appDataDir, "settings.json");

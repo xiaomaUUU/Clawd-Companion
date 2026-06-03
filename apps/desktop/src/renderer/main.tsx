@@ -24,7 +24,7 @@ import {
   Wrench,
   X
 } from "lucide-react";
-import type { CompanionConnectionStatus, CompanionEvent, CompanionSettings, FeedbackMode, PetState, PrivacyMode, PermissionRequest, ToolName, UpdateStatus } from "../shared/events";
+import type { CompanionConnectionStatus, CompanionEvent, CompanionSettings, FeedbackMode, IdleAnimConfig, PetState, PrivacyMode, PermissionRequest, ToolName, UpdateStatus } from "../shared/events";
 import { defaultSettings, stateFromEvent } from "../shared/events";
 import clawdImage from "./clawd.png";
 import "./clawd-sprites/sprites.css";
@@ -301,18 +301,20 @@ function PetApp() {
     return () => off();
   }, []);
 
-  // 随机待机动画：idle_bubble / permission_prompt 二选一，15~40s 间隔，连播 2~3 轮
+  // 随机待机动画
   useEffect(() => {
-    if (petState !== "idle" || editMode) {
+    const cfg = settings.idleAnim;
+    if (!cfg?.enabled || petState !== "idle" || editMode) {
       setIdleBubbleSprite(null);
       idleTimers.current.forEach(clearTimeout);
       idleTimers.current = [];
       return;
     }
-    const pool = ["idle", "waiting_permission"];
+    const pool = cfg.selectedSprites.length > 0 ? cfg.selectedSprites : ["idle"];
     function playBatch() {
       const sprite = pool[Math.floor(Math.random() * pool.length)];
-      const repeats = 2 + Math.floor(Math.random() * 2); // 2 or 3
+      const range = cfg!.repeatMax - cfg!.repeatMin;
+      const repeats = cfg!.repeatMin + (range > 0 ? Math.floor(Math.random() * (range + 1)) : 0);
       let count = 0;
       function show() {
         setIdleBubbleSprite(sprite);
@@ -330,12 +332,14 @@ function PetApp() {
       show();
     }
     function scheduleNext() {
-      const delay = 15_000 + Math.random() * 25_000;
+      const iMin = cfg!.intervalMin * 1000;
+      const iMax = cfg!.intervalMax * 1000;
+      const delay = iMin + Math.random() * (iMax - iMin);
       idleTimers.current = [window.setTimeout(playBatch, delay)];
     }
     scheduleNext();
     return () => { idleTimers.current.forEach(clearTimeout); idleTimers.current = []; };
-  }, [petState, editMode]);
+  }, [petState, editMode, settings.idleAnim]);
 
   useEffect(() => {
     if (editMode) {
@@ -748,16 +752,18 @@ function Clawd({ state, settings, forceIdleBubble }: { state: PetState; settings
   const idleTimers = useRef<number[]>([]);
 
   useEffect(() => {
-    if (state !== "idle") {
+    const cfg = settings.idleAnim;
+    if (!cfg?.enabled || state !== "idle") {
       setIdleSprite(null);
       idleTimers.current.forEach(clearTimeout);
       idleTimers.current = [];
       return;
     }
-    const pool = ["idle", "waiting_permission"];
+    const pool = cfg.selectedSprites.length > 0 ? cfg.selectedSprites : ["idle"];
     function playBatch() {
       const sprite = pool[Math.floor(Math.random() * pool.length)];
-      const repeats = 2 + Math.floor(Math.random() * 2);
+      const range = cfg!.repeatMax - cfg!.repeatMin;
+      const repeats = cfg!.repeatMin + (range > 0 ? Math.floor(Math.random() * (range + 1)) : 0);
       let count = 0;
       function show() {
         setIdleSprite(sprite);
@@ -775,12 +781,14 @@ function Clawd({ state, settings, forceIdleBubble }: { state: PetState; settings
       show();
     }
     function scheduleNext() {
-      const delay = 15_000 + Math.random() * 25_000;
+      const iMin = cfg!.intervalMin * 1000;
+      const iMax = cfg!.intervalMax * 1000;
+      const delay = iMin + Math.random() * (iMax - iMin);
       idleTimers.current = [window.setTimeout(playBatch, delay)];
     }
     scheduleNext();
     return () => { idleTimers.current.forEach(clearTimeout); idleTimers.current = []; };
-  }, [state]);
+  }, [state, settings.idleAnim]);
 
   const effectiveBubble = forceIdleBubble ?? idleSprite;
 
@@ -792,13 +800,24 @@ function Clawd({ state, settings, forceIdleBubble }: { state: PetState; settings
   );
 }
 
+const idleBubbleGifClass: Record<string, string> = {
+  idle: "idle_bubble",
+  thinking: "thinking_speech",
+  tool_read: "headset_focus",
+  tool_edit: "working_hardhat",
+  tool_bash: "working_hardhat",
+  waiting_permission: "permission_prompt",
+  done: "celebrate_bunny",
+  error: "error_dead"
+};
+
 function ClawdSprite({ state, idleBubble }: { state: PetState; idleBubble?: string | null }) {
   if (idleBubble) {
-    const spriteState = idleBubble;
+    const gifClass = idleBubbleGifClass[idleBubble] ?? idleBubble;
     return (
       <>
         <div className="clawd-glow" />
-        <span className={`clawd-sprite clawd-sprite-${spriteState} clawd-gif-${clawdGifName[idleBubble as PetState] ?? idleBubble}`} aria-hidden="true" />
+        <span className={`clawd-sprite clawd-sprite-${idleBubble} clawd-gif-${gifClass}`} aria-hidden="true" />
         <div className="shadow" />
       </>
     );
@@ -1044,6 +1063,15 @@ function SettingsApp() {
           </Panel>
         )}
 
+        {showAdvanced && (
+          <Panel title="待机动画设置" icon={<Sparkles size={18} />} wide>
+            <IdleAnimSettings
+              config={settings.idleAnim ?? defaultSettings.idleAnim!}
+              onChange={cfg => updateSettings({ idleAnim: cfg })}
+            />
+          </Panel>
+        )}
+
         <Panel title="最近事件" icon={<Bell size={18} />} wide>
           <div className="event-list">
             {events.length === 0 ? <div className="empty">还没有收到事件。先复制 hooks 配置，或点击测试事件看状态变化。</div> : events.map(event => (
@@ -1276,6 +1304,97 @@ function buildHookSnippet(command: string) {
       Stop: [hook]
     }
   }, null, 2);
+}
+
+const idleSpriteOptions: Array<{ key: string; label: string }> = [
+  { key: "idle", label: "idle_bubble" },
+  { key: "thinking", label: "thinking_speech" },
+  { key: "tool_read", label: "headset_focus" },
+  { key: "tool_edit", label: "working_hardhat" },
+  { key: "tool_bash", label: "bash" },
+  { key: "waiting_permission", label: "permission_prompt" },
+  { key: "done", label: "celebrate_bunny" },
+  { key: "error", label: "error_dead" }
+];
+
+function IdleAnimSettings({ config, onChange }: { config: IdleAnimConfig; onChange: (cfg: IdleAnimConfig) => void }) {
+  function toggleSprite(key: string) {
+    const next = config.selectedSprites.includes(key)
+      ? config.selectedSprites.filter(s => s !== key)
+      : [...config.selectedSprites, key];
+    onChange({ ...config, selectedSprites: next });
+  }
+
+  return (
+    <div className="idle-anim-settings">
+      <Toggle label="启用待机随机动画" checked={config.enabled} onChange={enabled => onChange({ ...config, enabled })} />
+      <div className="panel-divider" />
+      <h3 className="panel-subtitle">可选动画</h3>
+      <div className="idle-sprite-grid">
+        {idleSpriteOptions.map(opt => (
+          <button
+            key={opt.key}
+            className={`idle-sprite-preview ${config.selectedSprites.includes(opt.key) ? "checked" : ""}`}
+            onClick={() => toggleSprite(opt.key)}
+          >
+            <span className={`clawd-sprite clawd-sprite-${opt.key} clawd-gif-${idleBubbleGifClass[opt.key] ?? opt.key}`} />
+            <span className="idle-sprite-label">{opt.label}</span>
+          </button>
+        ))}
+      </div>
+      <div className="panel-divider" />
+      <RangeSlider
+        label="播放间隔"
+        min={5}
+        max={120}
+        step={5}
+        low={config.intervalMin}
+        high={config.intervalMax}
+        format={v => `${v} 秒`}
+        onChange={(low, high) => onChange({ ...config, intervalMin: low, intervalMax: high })}
+      />
+      <div className="panel-divider" />
+      <RangeSlider
+        label="每次播放次数"
+        min={1}
+        max={5}
+        step={1}
+        low={config.repeatMin}
+        high={config.repeatMax}
+        format={v => `${v} 次`}
+        onChange={(low, high) => onChange({ ...config, repeatMin: low, repeatMax: high })}
+      />
+      <p className="note">待机时在勾选的动画中随机挑选播放。若未勾选任何动画则默认使用 idle_bubble。</p>
+    </div>
+  );
+}
+
+function RangeSlider({ label, min, max, step, low, high, format, onChange }: {
+  label: string; min: number; max: number; step: number;
+  low: number; high: number; format: (v: number) => string;
+  onChange: (low: number, high: number) => void;
+}) {
+  const range = max - min;
+  const leftPercent = ((low - min) / range) * 100;
+  const rightPercent = ((high - min) / range) * 100;
+
+  return (
+    <label className="range-slider-row">
+      <span>{label}</span>
+      <div className="range-track">
+        <div className="range-fill" style={{ left: `${leftPercent}%`, width: `${rightPercent - leftPercent}%` }} />
+        <input
+          type="range" min={min} max={max} step={step} value={low}
+          onChange={e => { const v = Number(e.target.value); if (v <= high) onChange(v, high); }}
+        />
+        <input
+          type="range" min={min} max={max} step={step} value={high}
+          onChange={e => { const v = Number(e.target.value); if (v >= low) onChange(low, v); }}
+        />
+      </div>
+      <b>{format(low)} — {format(high)}</b>
+    </label>
+  );
 }
 
 function App() {

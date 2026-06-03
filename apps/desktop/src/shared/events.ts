@@ -124,6 +124,16 @@ export interface CompanionSettings {
   };
   zoneViewW?: number;
   zoneViewH?: number;
+  idleAnim?: IdleAnimConfig;
+}
+
+export interface IdleAnimConfig {
+  enabled: boolean;
+  selectedSprites: string[];
+  intervalMin: number;
+  intervalMax: number;
+  repeatMin: number;
+  repeatMax: number;
 }
 
 export interface UpdateStatus {
@@ -189,7 +199,15 @@ export const defaultSettings: CompanionSettings = {
     permission: { x: 560, y: -20 },
     view: { x: 0, y: 0 }
   },
-  zoneSizes: {}
+  zoneSizes: {},
+  idleAnim: {
+    enabled: true,
+    selectedSprites: ["idle", "thinking", "tool_read", "tool_edit", "tool_bash", "waiting_permission", "done", "error"],
+    intervalMin: 15,
+    intervalMax: 40,
+    repeatMin: 2,
+    repeatMax: 3
+  }
 };
 
 export function stateFromEvent(event: CompanionEvent): PetState {
