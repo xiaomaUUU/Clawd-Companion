@@ -26,7 +26,8 @@ contextBridge.exposeInMainWorld("companion", {
     return () => ipcRenderer.off("companion:connection", handler);
   },
   setPetInteractive: (interactive: boolean) => ipcRenderer.invoke("window:pet-interactive", interactive) as Promise<void>,
-  dragPetTo: (x: number, y: number) => ipcRenderer.invoke("window:drag-pet", { x, y }) as Promise<void>
+  dragPetTo: (x: number, y: number) => ipcRenderer.invoke("window:drag-pet", { x, y }) as Promise<void>,
+  movePetBy: (dx: number, dy: number) => ipcRenderer.invoke("window:move-pet-by", { dx, dy }) as Promise<void>
 });
 
 declare global {
@@ -45,6 +46,7 @@ declare global {
       onConnection: (callback: (status: CompanionConnectionStatus) => void) => () => void;
       setPetInteractive: (interactive: boolean) => Promise<void>;
       dragPetTo: (x: number, y: number) => Promise<void>;
+      movePetBy: (dx: number, dy: number) => Promise<void>;
     };
   }
 }

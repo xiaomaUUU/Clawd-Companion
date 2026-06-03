@@ -113,7 +113,7 @@ export interface CompanionConnectionStatus {
 export const defaultSettings: CompanionSettings = {
   port: 47634,
   token: "clawd-local",
-  privacyMode: "safe",
+  privacyMode: "detailed",
   showBubbles: true,
   editPosition: false,
   alwaysOnTop: true,
@@ -122,31 +122,47 @@ export const defaultSettings: CompanionSettings = {
   petScale: 1,
   viewScale: 1,
   petOpacity: 1,
-  clawdScale: 1,
+  clawdScale: 0.7964601769911505,
   clawdOpacity: 1,
-  thoughtScale: 1,
+  thoughtScale: 0.7641509433962264,
   thoughtOpacity: 1,
-  cardScale: 1,
+  cardScale: 0.7641509433962264,
   cardOpacity: 1,
   bubbleScale: 1,
   bubbleOpacity: 1,
   bubbleDuration: 8,
   feedbackModes: {
-    thinking: "thought",
-    tool_read: "ribbon",
-    tool_edit: "ribbon",
-    tool_bash: "ribbon",
-    tool_search: "ribbon",
+    thinking: "card",
+    tool_read: "thought",
+    tool_edit: "card",
+    tool_bash: "thought",
+    tool_search: "thought",
     waiting_permission: "card",
     done: "card",
     error: "card"
   },
-  toolFeedbackModes: {},
+  toolFeedbackModes: {
+    Read: "ribbon",
+    Edit: "ribbon",
+    Write: "ribbon",
+    Bash: "ribbon",
+    Grep: "ribbon",
+    Glob: "ribbon",
+    WebFetch: "ribbon",
+    Task: "ribbon"
+  },
   showStatusProp: true,
   launchAtLogin: false,
   openSettingsOnStart: true,
   doneSound: false,
-  eventHistoryLimit: 40
+  eventHistoryLimit: 40,
+  positionOffsets: {
+    clawd: { x: 707, y: -61 },
+    bubble: { x: 727, y: -41 },
+    ribbon: { x: 677, y: -80 },
+    view: { x: 0, y: 0 }
+  },
+  zoneSizes: {}
 };
 
 export function stateFromEvent(event: CompanionEvent): PetState {

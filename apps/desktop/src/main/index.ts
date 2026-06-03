@@ -26,6 +26,8 @@ let serverListening = false;
 let serverError: string | undefined;
 let lastEvent: CompanionEvent | null = null;
 let suppressPetMoveSave = false;
+let saveDebounce: ReturnType<typeof setTimeout> | null = null;
+let trackedPetPos = { x: 0, y: 0 };
 let activeSessionId: string | undefined;
 let activeClientType: CompanionEvent["clientType"] | undefined;
 let activeClientLabel: string | undefined;
@@ -78,7 +80,6 @@ function saveSettings(next: Partial<CompanionSettings>) {
     }
   }
   keepPetOnTop();
-  petWindow?.setIgnoreMouseEvents(settings.clickThrough, { forward: true });
   broadcastSettings();
   broadcastConnectionStatus();
   if (settings.port !== previousPort) restartEventServer();
@@ -93,41 +94,42 @@ function rendererUrl(route: "pet" | "settings") {
 }
 
 function petWindowSize() {
-  const vs = settings.viewScale ?? settings.petScale;
+  const display = screen.getPrimaryDisplay().bounds;
   return {
-    width: Math.round(260 * vs),
-    height: Math.round(392 * vs)
+    width: display.width,
+    height: display.height
   };
 }
 
 function clampPetPosition(x: number, y: number) {
-  const display = screen.getPrimaryDisplay().workArea;
-  const size = petWindowSize();
+  const display = screen.getPrimaryDisplay().bounds;
   return {
-    x: Math.min(Math.max(Math.round(x), display.x + 8), display.x + display.width - size.width - 8),
-    y: Math.min(Math.max(Math.round(y), display.y + 8), display.y + display.height - size.height - 8)
+    x: Math.round(Math.min(Math.max(x, display.x - display.width + 260), display.x + display.width - 260)),
+    y: Math.round(Math.min(Math.max(y, display.y - display.height + 120), display.y + display.height - 120))
   };
 }
 
 function keepPetOnTop() {
-  if (!petWindow || petWindow.isDestroyed() || !settings.alwaysOnTop) return;
+  if (!petWindow || petWindow.isDestroyed()) return;
   if (!settings.petEnabled) return;
-  petWindow.setAlwaysOnTop(true, "screen-saver");
-  petWindow.moveTop();
+  if (settings.alwaysOnTop) {
+    petWindow.setAlwaysOnTop(true, "screen-saver");
+    petWindow.moveTop();
+  } else {
+    petWindow.setAlwaysOnTop(false);
+  }
 }
 
 function createPetWindow() {
-  const display = screen.getPrimaryDisplay().workArea;
   const size = petWindowSize();
-  const defaultX = display.x + display.width - size.width - 72;
-  const defaultY = display.y + display.height - size.height - 260;
-  const position = clampPetPosition(settings.position?.x ?? defaultX, settings.position?.y ?? defaultY);
+  // 窗口始终覆盖整个主屏幕，(0,0) 为基准，所有定位由 CSS view offset 控制
+  trackedPetPos = { x: 0, y: 0 };
 
   petWindow = new BrowserWindow({
     width: size.width,
     height: size.height,
-    x: position.x,
-    y: position.y,
+    x: 0,
+    y: 0,
     frame: false,
     transparent: true,
     resizable: false,
@@ -144,7 +146,7 @@ function createPetWindow() {
   });
 
   wireWindowDiagnostics(petWindow, "pet");
-  petWindow.setIgnoreMouseEvents(settings.clickThrough, { forward: true });
+  petWindow.setIgnoreMouseEvents(true, { forward: true });
   keepPetOnTop();
   petWindow.on("focus", keepPetOnTop);
   petWindow.on("show", keepPetOnTop);
@@ -156,12 +158,13 @@ function createPetWindow() {
       suppressPetMoveSave = false;
       return;
     }
-    const [xNow, yNow] = petWindow?.getPosition() ?? [position.x, position.y];
+    const [xNow, yNow] = petWindow?.getPosition() ?? [0, 0];
     const clamped = clampPetPosition(xNow, yNow);
     if (xNow !== clamped.x || yNow !== clamped.y) {
       suppressPetMoveSave = true;
       petWindow?.setPosition(clamped.x, clamped.y);
     }
+    trackedPetPos = { x: clamped.x, y: clamped.y };
     settings = { ...settings, position: clamped };
     writeFileSync(settingsPath, JSON.stringify(settings, null, 2));
   });
@@ -403,6 +406,20 @@ ipcMain.handle("window:pet-interactive", (_, interactive: boolean) => {
 ipcMain.handle("window:drag-pet", (_, position: { x: number; y: number }) => {
   const clamped = clampPetPosition(position.x, position.y);
   petWindow?.setPosition(clamped.x, clamped.y);
+  trackedPetPos = { x: clamped.x, y: clamped.y };
+});
+ipcMain.handle("window:move-pet-by", (_, delta: { dx: number; dy: number }) => {
+  if (!petWindow) return;
+  suppressPetMoveSave = true;
+  const clamped = clampPetPosition(trackedPetPos.x + delta.dx, trackedPetPos.y + delta.dy);
+  petWindow.setPosition(clamped.x, clamped.y);
+  trackedPetPos = { x: clamped.x, y: clamped.y };
+  settings = { ...settings, position: clamped };
+  if (saveDebounce) clearTimeout(saveDebounce);
+  saveDebounce = setTimeout(() => {
+    writeFileSync(settingsPath, JSON.stringify(settings, null, 2));
+    saveDebounce = null;
+  }, 400);
 });
 
 const gotSingleInstanceLock = app.requestSingleInstanceLock();

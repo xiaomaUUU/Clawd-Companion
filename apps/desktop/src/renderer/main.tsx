@@ -27,7 +27,20 @@ import {
 import type { CompanionConnectionStatus, CompanionEvent, CompanionSettings, FeedbackMode, PetState, PrivacyMode, ToolName } from "../shared/events";
 import { defaultSettings, stateFromEvent } from "../shared/events";
 import clawdImage from "./clawd.png";
+import "./clawd-sprites/sprites.css";
 import "./styles.css";
+
+const clawdGifName: Record<PetState, string> = {
+  idle: "clawd_png_idle",
+  thinking: "thinking_speech",
+  tool_read: "headset_focus",
+  tool_edit: "working_hardhat",
+  tool_bash: "working_hardhat",
+  tool_search: "thinking_speech",
+  waiting_permission: "permission_prompt",
+  done: "celebrate_bunny",
+  error: "error_dead"
+};
 
 const stateCopy: Record<PetState, { label: string; line: string; tone: string }> = {
   idle: { label: "待机", line: "Clawd 在桌面边缘小憩", tone: "sand" },
@@ -164,11 +177,36 @@ function PetApp() {
   const dragging = useRef<string | null>(null);
   const dragStart = useRef<{ mx: number; my: number; ox: number; oy: number }>({ mx: 0, my: 0, ox: 0, oy: 0 });
   const offRef = useRef(settings.positionOffsets ?? {});
-
   useEffect(() => {
-    if (editMode) void window.companion.setPetInteractive(true);
-    else void window.companion.setPetInteractive(false);
-  }, [editMode]);
+    if (editMode) {
+      void window.companion.setPetInteractive(false);
+      const handle = (e: MouseEvent) => {
+        if (dragging.current) return;
+        const target = e.target as HTMLElement;
+        void window.companion.setPetInteractive(!!target.closest('.edit-zone, .zone-resize, .edge-handle'));
+      };
+      window.addEventListener('mousemove', handle);
+      return () => {
+        window.removeEventListener('mousemove', handle);
+        void window.companion.setPetInteractive(false);
+      };
+    }
+    if (settings.clickThrough) {
+      void window.companion.setPetInteractive(false);
+      return;
+    }
+    void window.companion.setPetInteractive(false);
+    const handle = (e: MouseEvent) => {
+      if (dragging.current) return;
+      const target = e.target as HTMLElement;
+      void window.companion.setPetInteractive(!!target.closest('.clawd, .bubble-wrapper, .tool-ribbon'));
+    };
+    window.addEventListener('mousemove', handle);
+    return () => {
+      window.removeEventListener('mousemove', handle);
+      void window.companion.setPetInteractive(false);
+    };
+  }, [editMode, settings.clickThrough]);
 
   const offsetsRef = useRef(settings.positionOffsets ?? {});
   const scaleRef = useRef({ clawd: settings.clawdScale, bubble: settings.thoughtScale, ribbon: settings.bubbleScale });
@@ -191,11 +229,11 @@ function PetApp() {
           const ws = ox + (e.clientX - mx + e.clientY - my) / 800;
           updateSettings({ viewScale: Math.max(0.7, Math.min(2.5, ws)) });
         }
-      } else if (key === "view") {
-        void window.companion.dragPetTo(
-          ox + e.screenX - mx,
-          oy + e.screenY - my
-        );
+      } else if (key === "view" || key === "pet") {
+        const nx = ox + e.clientX - mx;
+        const ny = oy + e.clientY - my;
+        const p = offsetsRef.current;
+        updateSettings({ positionOffsets: { ...p, view: { x: nx, y: ny } } });
       } else {
         const nx = ox + e.clientX - mx;
         const ny = oy + e.clientY - my;
@@ -212,16 +250,26 @@ function PetApp() {
   useEffect(() => { offsetsRef.current = settings.positionOffsets ?? {}; }, [settings.positionOffsets]);
   useEffect(() => { scaleRef.current = { clawd: settings.clawdScale, bubble: settings.thoughtScale, ribbon: settings.bubbleScale }; }, [settings.clawdScale, settings.thoughtScale, settings.bubbleScale]);
 
+  const editPreviewEvent = useMemo(
+    () => makeEvent("tool_start", "manual", "编辑模式预览", "这是桌宠实际显示的卡片 / 气泡位置。", "Edit"),
+    []
+  );
+  const editPreviewRibbon = useMemo(
+    () => [makeEvent("tool_start", "manual", "工具条预览", "Edit 工具条位置预览。", "Edit")],
+    []
+  );
+
   if (!settings.petEnabled) return <main className="pet-stage pet-disabled" />;
 
   const offsets = settings.positionOffsets ?? {};
+  const viewOff = offsets.view ?? { x: 0, y: 0 };
 
   function begin(k: string, e: React.MouseEvent) {
     if (!editMode) return;
     e.stopPropagation();
     dragging.current = k;
     if (k === "view") {
-      dragStart.current = { mx: e.screenX, my: e.screenY, ox: window.screenX, oy: window.screenY };
+      dragStart.current = { mx: e.clientX, my: e.clientY, ox: viewOff.x, oy: viewOff.y };
     } else {
       dragStart.current = { mx: e.clientX, my: e.clientY, ox: offsets[k as keyof typeof offsets]?.x ?? 0, oy: offsets[k as keyof typeof offsets]?.y ?? 0 };
     }
@@ -240,17 +288,29 @@ function PetApp() {
     }
   }
 
+  function beginNormalDrag(e: React.MouseEvent) {
+    if (editMode || settings.clickThrough) return;
+    dragging.current = "pet";
+    dragStart.current = { mx: e.clientX, my: e.clientY, ox: viewOff.x, oy: viewOff.y };
+  }
+
   if (editMode) {
+    const previewEvent = currentEvent ?? editPreviewEvent;
+    const previewState = currentEvent ? petState : stateFromEvent(previewEvent);
+    const previewRibbon = toolRibbon.length > 0 ? toolRibbon : editPreviewRibbon;
+    const bubbleMode = getFeedbackMode(previewEvent, settings);
     const cw = Math.round(226 * settings.clawdScale);
     const ch = Math.round(238 * settings.clawdScale);
-    const bh = Math.round(106 * settings.thoughtScale);
+    const bw = Math.round((bubbleMode === "thought" ? 172 : 234) * (bubbleMode === "thought" ? settings.thoughtScale : settings.cardScale));
+    const bh = Math.round((bubbleMode === "thought" ? 82 : 124) * (bubbleMode === "thought" ? settings.thoughtScale : settings.cardScale));
+    const bx = bubbleMode === "thought" ? Math.round(226 - 6 - bw) : -4;
+    const by = bubbleMode === "thought" ? 84 : 10;
     const rw = Math.round(144 * settings.bubbleScale);
     const rh = Math.round(144 * settings.bubbleScale);
 
     return (
-      <main className="pet-stage edit-mode" style={{ background: "rgba(215, 119, 87, 0.06)" }}
+      <main className="pet-stage edit-mode"
         onMouseDown={e => { if (e.target === e.currentTarget) begin("view", e); }}>
-        {/* 四条边的 resize 手柄：拖动调整窗口整体大小 */}
         <span className="edge-handle edge-n" onMouseDown={e => beginResize("edgeN", e)} />
         <span className="edge-handle edge-s" onMouseDown={e => beginResize("edgeS", e)} />
         <span className="edge-handle edge-e" onMouseDown={e => beginResize("edgeE", e)} />
@@ -259,38 +319,44 @@ function PetApp() {
         <span className="edge-handle edge-nw" onMouseDown={e => beginResize("edgeNW", e)} />
         <span className="edge-handle edge-se" onMouseDown={e => beginResize("edgeSE", e)} />
         <span className="edge-handle edge-sw" onMouseDown={e => beginResize("edgeSW", e)} />
-        <section className="pet-anchor" style={{ transform: `translateX(-50%) scale(${settings.petScale})` }}>
-          {/* Zone 1: Clawd */}
+        <section className="pet-anchor" style={{ transform: `translateX(-50%) scale(${settings.petScale}) translate(${viewOff.x}px, ${viewOff.y}px)` }}>
+          <div className="edit-live-layer">
+            {settings.showBubbles && getFeedbackMode(previewEvent, settings) !== "ribbon" ? (
+              <div className="bubble-wrapper" style={{ transform: `translate(${offsets.bubble?.x ?? 0}px, ${offsets.bubble?.y ?? 0}px)` }}>
+                <Bubble event={previewEvent} state={stateFromEvent(previewEvent)} settings={settings} />
+              </div>
+            ) : null}
+            <div className={`clawd clawd-${previewState}`} style={{ transform: `translate(${offsets.clawd?.x ?? 0}px, ${offsets.clawd?.y ?? 0}px) scale(${settings.clawdScale})`, opacity: settings.clawdOpacity }}>
+              <ClawdSprite state={previewState} />
+              {settings.showStatusProp && previewState !== "idle" ? <StateProp state={previewState} /> : null}
+            </div>
+            {settings.showBubbles ? (
+              <ToolRibbon events={previewRibbon} settings={settings} offset={offsets.ribbon} />
+            ) : null}
+          </div>
           <div className="edit-zone edit-zone-clawd"
             style={{
+              left: Math.round((226 - cw) / 2),
               transform: `translate(${offsets.clawd?.x ?? 0}px, ${offsets.clawd?.y ?? 0}px)`,
               width: cw, height: ch
             }}
             onMouseDown={e => begin("clawd", e)}>
             <span className="edit-zone-label">Clawd</span>
             <span className="zone-resize" onMouseDown={e => beginResize("clawd", e)} />
-            <div className="clawd" style={{ position: "absolute", left: 0, bottom: 0, width: 226, height: 238, animation: "none" }}>
-              <div className="clawd-glow" />
-              <img className="clawd-image" src={clawdImage} alt="" draggable={false} />
-              <div className="shadow" />
-            </div>
           </div>
-          {/* Zone 2: 气泡/卡片 */}
           <div className="edit-zone edit-zone-bubble"
             style={{
+              left: bx,
+              top: by,
+              right: "auto",
+              bottom: "auto",
               transform: `translate(${offsets.bubble?.x ?? 0}px, ${offsets.bubble?.y ?? 0}px)`,
-              height: bh
+              width: bw, height: bh
             }}
             onMouseDown={e => begin("bubble", e)}>
             <span className="edit-zone-label">气泡 / 卡片</span>
             <span className="zone-resize" onMouseDown={e => beginResize("bubble", e)} />
-            {currentEvent && getFeedbackMode(currentEvent, settings) !== "ribbon" ? (
-              <div className="bubble-wrapper" style={{ pointerEvents: "none" }}>
-                <Bubble event={currentEvent} state={stateFromEvent(currentEvent)} settings={settings} />
-              </div>
-            ) : null}
           </div>
-          {/* Zone 3: 工具条 */}
           <div className="edit-zone edit-zone-ribbon"
             style={{
               transform: `translate(${offsets.ribbon?.x ?? 0}px, ${offsets.ribbon?.y ?? 0}px)`,
@@ -306,18 +372,16 @@ function PetApp() {
   }
 
   return (
-    <main className="pet-stage">
-      <section className="pet-anchor" style={{ transform: `translateX(-50%) scale(${settings.petScale})`, opacity: settings.petOpacity }}>
+    <main className={`pet-stage ${settings.clickThrough ? 'pet-clickthrough' : ''}`}>
+      <section className="pet-anchor" style={{ transform: `translateX(-50%) scale(${settings.petScale}) translate(${viewOff.x}px, ${viewOff.y}px)`, opacity: settings.petOpacity }} onMouseDown={beginNormalDrag}>
         {settings.showBubbles && currentEvent && getFeedbackMode(currentEvent, settings) !== "ribbon" ? (
           <div className="bubble-wrapper" style={{ transform: `translate(${offsets.bubble?.x ?? 0}px, ${offsets.bubble?.y ?? 0}px)` }}>
             <Bubble event={currentEvent} state={stateFromEvent(currentEvent)} settings={settings} />
           </div>
         ) : null}
-        <div className="clawd" style={{ transform: `translate(${offsets.clawd?.x ?? 0}px, ${offsets.clawd?.y ?? 0}px) scale(${settings.clawdScale})`, opacity: settings.clawdOpacity }}>
-          <div className="clawd-glow" />
-          <img className="clawd-image" src={clawdImage} alt="" draggable={false} />
-          {settings.showStatusProp ? <StateProp state={petState} /> : null}
-          <div className="shadow" />
+        <div className={`clawd clawd-${petState}`} style={{ transform: `translate(${offsets.clawd?.x ?? 0}px, ${offsets.clawd?.y ?? 0}px) scale(${settings.clawdScale})`, opacity: settings.clawdOpacity }}>
+          <ClawdSprite state={petState} />
+          {settings.showStatusProp && petState !== "idle" ? <StateProp state={petState} /> : null}
         </div>
         {settings.showBubbles && toolRibbon.length > 0 ? (
           <div className="tool-ribbon" style={{ transform: `translate(${offsets.ribbon?.x ?? 0}px, ${offsets.ribbon?.y ?? 0}px)` }}>
@@ -403,9 +467,10 @@ const toolIconMap: Record<string, string> = {
   Unknown: "?"
 };
 
-function ToolRibbon({ events, settings }: { events: CompanionEvent[]; settings: CompanionSettings }) {
+function ToolRibbon({ events, settings, offset }: { events: CompanionEvent[]; settings: CompanionSettings; offset?: { x: number; y: number } }) {
+  const translate = offset ? `translate(${offset.x}px, ${offset.y}px) ` : "";
   return (
-    <div className="tool-ribbon" style={{ transform: `scale(${settings.bubbleScale})`, opacity: settings.bubbleOpacity }}>
+    <div className="tool-ribbon" style={{ transform: `${translate}scale(${settings.bubbleScale})`, opacity: settings.bubbleOpacity }}>
       {events.slice(0, 5).map((event, index) => {
         const tool = event.tool ?? "Unknown";
         const color = toolColorMap[tool] ?? "steel";
@@ -431,12 +496,23 @@ function ToolRibbon({ events, settings }: { events: CompanionEvent[]; settings: 
 function Clawd({ state, settings }: { state: PetState; settings: CompanionSettings }) {
   return (
     <section className={`clawd clawd-${state}`} style={{ transform: `scale(${settings.clawdScale})`, opacity: settings.clawdOpacity }} aria-label={`Clawd ${stateCopy[state].label}`}>
-      <div className="clawd-glow" />
-      <img className="clawd-image" src={clawdImage} alt="" draggable={false} />
-      {settings.showStatusProp ? <StateProp state={state} /> : null}
-      <div className="shadow" />
+      <ClawdSprite state={state} />
+      {settings.showStatusProp && state !== "idle" ? <StateProp state={state} /> : null}
     </section>
   );
+}
+
+function ClawdSprite({ state }: { state: PetState }) {
+  if (state === "idle") {
+    return (
+      <>
+        <div className="clawd-glow" />
+        <img className="clawd-image" src={clawdImage} alt="" draggable={false} />
+        <div className="shadow" />
+      </>
+    );
+  }
+  return <span className={`clawd-sprite clawd-sprite-${state} clawd-gif-${clawdGifName[state]}`} aria-hidden="true" />;
 }
 
 function StateProp({ state }: { state: PetState }) {
@@ -570,7 +646,7 @@ function SettingsApp() {
           <Toggle label="显示气泡" checked={settings.showBubbles} onChange={showBubbles => updateSettings({ showBubbles })} />
           <Toggle label="显示状态道具" checked={settings.showStatusProp} onChange={showStatusProp => updateSettings({ showStatusProp })} />
           <Toggle label="编辑桌宠位置" checked={settings.editPosition} onChange={editPosition => updateSettings({ editPosition })} />
-          {settings.editPosition ? <button className="inline-action" onClick={() => updateSettings({ positionOffsets: {}, zoneSizes: {}, clawdScale: 1, thoughtScale: 1, bubbleScale: 1, cardScale: 1, petScale: 1, viewScale: 1 })}>重置全部</button> : null}
+          {settings.editPosition ? <button className="inline-action" onClick={() => updateSettings({ positionOffsets: defaultSettings.positionOffsets, zoneSizes: defaultSettings.zoneSizes, clawdScale: defaultSettings.clawdScale, thoughtScale: defaultSettings.thoughtScale, bubbleScale: defaultSettings.bubbleScale, cardScale: defaultSettings.cardScale, petScale: defaultSettings.petScale, viewScale: defaultSettings.viewScale })}>重置全部</button> : null}
           <Slider label="整体尺寸" min={0.7} max={1.45} step={0.05} value={settings.petScale} format={value => `${Math.round(value * 100)}%`} onChange={petScale => updateSettings({ petScale })} />
           <Slider label="Clawd尺寸" min={0.7} max={1.35} step={0.05} value={settings.clawdScale} format={value => `${Math.round(value * 100)}%`} onChange={clawdScale => updateSettings({ clawdScale })} />
           <Slider label="Clawd透明" min={0.45} max={1} step={0.05} value={settings.clawdOpacity} format={value => `${Math.round(value * 100)}%`} onChange={clawdOpacity => updateSettings({ clawdOpacity })} />

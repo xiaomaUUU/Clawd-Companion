@@ -18,6 +18,7 @@ declare global {
       onConnection: (callback: (status: CompanionConnectionStatus) => void) => () => void;
       setPetInteractive: (interactive: boolean) => Promise<void>;
       dragPetTo: (x: number, y: number) => Promise<void>;
+      movePetBy: (dx: number, dy: number) => Promise<void>;
     };
   }
 }
