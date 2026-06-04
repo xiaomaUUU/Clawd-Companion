@@ -404,8 +404,9 @@ function PetApp() {
   useEffect(() => {
     const cfg = settings.idleAnim;
     const mainIdle = (settings as any).mainClawdIdleAnimation ?? "random";
-    // 固定动画模式：始终播放指定的 GIF，替代静态 PNG
-    if (mainIdle !== "random" && !editMode) {
+    const hasActiveSession = sessions.some(s => s.isActive);
+    // 固定动画模式：仅在有会话进行时播放指定的 GIF，替代静态 PNG
+    if (mainIdle !== "random" && hasActiveSession && !editMode) {
       setIdleBubbleSprite(mainIdle);
       idleTimers.current.forEach(clearTimeout);
       idleTimers.current = [];
@@ -447,7 +448,7 @@ function PetApp() {
     }
     scheduleNext();
     return () => { idleTimers.current.forEach(clearTimeout); idleTimers.current = []; };
-  }, [petState, editMode, settings.idleAnim, (settings as any).mainClawdIdleAnimation]);
+  }, [petState, editMode, settings.idleAnim, (settings as any).mainClawdIdleAnimation, sessions]);
 
   // 同步 idleBubbleSprite 到设置面板
   useEffect(() => {
