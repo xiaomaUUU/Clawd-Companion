@@ -207,7 +207,8 @@ function useCompanion() {
           state: stateFromEvent(event),
           lastEvent: event,
           lastEventTime: Date.now(),
-          isActive: !isDone
+          isActive: !isDone,
+          eventCount: (existing?.eventCount ?? 0) + 1
         };
         sessionsRef.current.set(sid, session);
         setSessions(Array.from(sessionsRef.current.values()));
@@ -732,7 +733,7 @@ function PetApp() {
         {(() => {
           if (!settings.multiSessionEnabled || !mainSessionId) return null;
           const companions = sessions
-            .filter(s => s.sessionId !== mainSessionId && (s.isActive || exitingSessions.has(s.sessionId)))
+            .filter(s => s.sessionId !== mainSessionId && (s.isActive || exitingSessions.has(s.sessionId)) && s.eventCount >= 2)
             .slice(0, 3);
           if (companions.length === 0) return null;
           return companions.map((session, i) => (

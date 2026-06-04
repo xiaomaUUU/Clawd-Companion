@@ -194,6 +194,7 @@ export interface CompanionSession {
   lastEvent: CompanionEvent | null;
   lastEventTime: number;
   isActive: boolean;
+  eventCount: number;
 }
 
 export interface CompanionConnectionStatus {
