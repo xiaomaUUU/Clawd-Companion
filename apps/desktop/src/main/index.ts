@@ -397,17 +397,28 @@ function setupAutoUpdater() {
   autoUpdater.autoDownload = true;
   autoUpdater.autoInstallOnAppQuit = true;
 
+  // 设置 GitHub provider 配置
+  autoUpdater.setFeedURL({
+    provider: "github",
+    owner: "Doulor",
+    repo: "Clawd-Companion",
+    releaseType: "release"
+  });
+
   autoUpdater.on("checking-for-update", () => {
+    logRuntime("autoUpdater: checking-for-update");
     updateStatus = { ...updateStatus, checking: true, upToDate: false, error: undefined };
     broadcastUpdateStatus();
   });
 
   autoUpdater.on("update-available", info => {
+    logRuntime(`autoUpdater: update-available v${info.version}`);
     updateStatus = { ...updateStatus, checking: false, available: true, version: info.version };
     broadcastUpdateStatus();
   });
 
   autoUpdater.on("update-not-available", () => {
+    logRuntime("autoUpdater: update-not-available");
     updateStatus = { checking: false, available: false, upToDate: true, downloaded: false, downloading: false, version: undefined };
     broadcastUpdateStatus();
   });
