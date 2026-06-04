@@ -399,45 +399,7 @@ function PetApp() {
     return () => off();
   }, []);
 
-  // 随机待机动画
-  useEffect(() => {
-    const cfg = settings.idleAnim;
-    if (!cfg?.enabled || petState !== "idle" || editMode) {
-      setIdleBubbleSprite(null);
-      idleTimers.current.forEach(clearTimeout);
-      idleTimers.current = [];
-      return;
-    }
-    const pool = cfg.selectedSprites.length > 0 ? cfg.selectedSprites : ["idle"];
-    function playBatch() {
-      const sprite = pool[Math.floor(Math.random() * pool.length)];
-      const range = cfg!.repeatMax - cfg!.repeatMin;
-      const repeats = cfg!.repeatMin + (range > 0 ? Math.floor(Math.random() * (range + 1)) : 0);
-      let count = 0;
-      function show() {
-        setIdleBubbleSprite(sprite);
-        const t = window.setTimeout(() => {
-          setIdleBubbleSprite(null);
-          count++;
-          if (count < repeats) {
-            idleTimers.current = [window.setTimeout(show, 1500)];
-          } else {
-            scheduleNext();
-          }
-        }, 2500);
-        idleTimers.current = [t];
-      }
-      show();
-    }
-    function scheduleNext() {
-      const iMin = cfg!.intervalMin * 1000;
-      const iMax = cfg!.intervalMax * 1000;
-      const delay = iMin + Math.random() * (iMax - iMin);
-      idleTimers.current = [window.setTimeout(playBatch, delay)];
-    }
-    scheduleNext();
-    return () => { idleTimers.current.forEach(clearTimeout); idleTimers.current = []; };
-  }, [petState, editMode, settings.idleAnim]);
+// 待机动画（主 Clawd）  useEffect(() => {    const cfg = settings.idleAnim;    const mainIdle = (settings as any).mainClawdIdleAnimation ?? "random";    // 如果指定了固定动画（非 random），直接播放指定的动画    if (mainIdle !== "random" && petState === "idle" && !editMode) {      setIdleBubbleSprite(mainIdle);      idleTimers.current.forEach(clearTimeout);      idleTimers.current = [];      return;    }    // 随机动画模式    if (!cfg?.enabled || petState !== "idle" || editMode) {      setIdleBubbleSprite(null);      idleTimers.current.forEach(clearTimeout);      idleTimers.current = [];      return;    }    const pool = cfg.selectedSprites.length > 0 ? cfg.selectedSprites : ["idle"];    function playBatch() {      const sprite = pool[Math.floor(Math.random() * pool.length)];      const range = cfg!.repeatMax - cfg!.repeatMin;      const repeats = cfg!.repeatMin + (range > 0 ? Math.floor(Math.random() * (range + 1)) : 0);      let count = 0;      function show() {        setIdleBubbleSprite(sprite);        const t = window.setTimeout(() => {          setIdleBubbleSprite(null);          count++;          if (count < repeats) {            idleTimers.current = [window.setTimeout(show, 1500)];          } else {            scheduleNext();          }        }, 2500);        idleTimers.current = [t];      }      show();    }    function scheduleNext() {      const iMin = cfg!.intervalMin * 1000;      const iMax = cfg!.intervalMax * 1000;      const delay = iMin + Math.random() * (iMax - iMin);      idleTimers.current = [window.setTimeout(playBatch, delay)];    }    scheduleNext();    return () => { idleTimers.current.forEach(clearTimeout); idleTimers.current = []; };  }, [petState, editMode, settings.idleAnim, (settings as any).mainClawdIdleAnimation]);
 
   // 同步 idleBubbleSprite 到设置面板
   useEffect(() => {
@@ -1231,29 +1193,6 @@ function SettingsApp() {
             <>
               <Toggle label="显示会话标题" checked={settings.showSessionTitle} onChange={showSessionTitle => updateSettings({ showSessionTitle })} />
               <Slider label="小 Clawd 缩放" min={0.3} max={0.8} step={0.05} value={settings.companionScale} format={value => `${Math.round(value * 100)}%`} onChange={companionScale => updateSettings({ companionScale })} />
-              <div className="panel-divider" />
-              <h3 className="panel-subtitle">工作时待机动画</h3>
-              <p className="note">有会话运行但没有工具调用时，小 Clawd 循环播放选中的动画。工具调用时仍会切换到对应动画。</p>
-              {[0, 1, 2].map(i => (
-                <div key={i} className="companion-idle-row">
-                  <span className="companion-idle-label">小 Clawd {i + 1}</span>
-                  <div className="companion-idle-options">
-                    {["thinking", "idle", "waiting_permission", "done"].map(sprite => (
-                      <button
-                        key={sprite}
-                        className={`companion-idle-btn ${(settings.companionIdleAnimations?.[i] ?? "thinking") === sprite ? "active" : ""}`}
-                        onClick={() => {
-                          const next = [...(settings.companionIdleAnimations ?? ["thinking", "thinking", "thinking"])];
-                          next[i] = sprite;
-                          updateSettings({ companionIdleAnimations: next });
-                        }}
-                      >
-                        {stateCopy[sprite as PetState]?.label ?? sprite}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              ))}
             </>
           )}
         </Panel>
@@ -1296,7 +1235,7 @@ function SettingsApp() {
                 </div>
               )}
               {advancedTab === "idle" && (
-                <IdleAnimSettings config={settings.idleAnim ?? defaultSettings.idleAnim!} onChange={cfg => updateSettings({ idleAnim: cfg })} />
+                <IdleAnimSettings config={settings.idleAnim ?? defaultSettings.idleAnim!} onChange={cfg => updateSettings({ idleAnim: cfg })} settings={settings} updateSettings={updateSettings} />
               )}
               {advancedTab === "mapping" && (
                 <StateAnimSettings stateAnimations={settings.stateAnimations ?? {}} onChange={sa => updateSettings({ stateAnimations: sa })} />
@@ -1633,7 +1572,19 @@ const idleSpriteOptions: Array<{ key: string; label: string; w: number; h: numbe
   { key: "error", label: "error_dead", w: 168, h: 182 }
 ];
 
-function IdleAnimSettings({ config, onChange }: { config: IdleAnimConfig; onChange: (cfg: IdleAnimConfig) => void }) {
+function IdleAnimSettings({ config, onChange, settings, updateSettings }: { config: IdleAnimConfig; onChange: (cfg: IdleAnimConfig) => void; settings: CompanionSettings; updateSettings: (s: Partial<CompanionSettings>) => void }) {
+  const [openPicker, setOpenPicker] = useState<number | null>(null);
+  const wrapRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (openPicker === null) return;
+    function handle(e: MouseEvent) {
+      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) setOpenPicker(null);
+    }
+    document.addEventListener("mousedown", handle);
+    return () => document.removeEventListener("mousedown", handle);
+  }, [openPicker]);
+
   function toggleSprite(key: string) {
     const next = config.selectedSprites.includes(key)
       ? config.selectedSprites.filter(s => s !== key)
@@ -1641,11 +1592,38 @@ function IdleAnimSettings({ config, onChange }: { config: IdleAnimConfig; onChan
     onChange({ ...config, selectedSprites: next });
   }
 
+  const companionLabels = ["主 Clawd", "小 Clawd 1", "小 Clawd 2", "小 Clawd 3"];
+  const companionAnimKeys = ["mainClawdIdleAnimation", "companionIdleAnimations[0]", "companionIdleAnimations[1]", "companionIdleAnimations[2]"];
+  const companionAnimValues = [
+    (settings as any).mainClawdIdleAnimation ?? "random",
+    settings.companionIdleAnimations?.[0] ?? "thinking",
+    settings.companionIdleAnimations?.[1] ?? "thinking",
+    settings.companionIdleAnimations?.[2] ?? "thinking"
+  ];
+
+  function setCompanionAnim(index: number, value: string) {
+    if (index === 0) {
+      updateSettings({ mainClawdIdleAnimation: value } as any);
+    } else {
+      const next = [...(settings.companionIdleAnimations ?? ["thinking", "thinking", "thinking"])];
+      next[index - 1] = value;
+      updateSettings({ companionIdleAnimations: next });
+    }
+  }
+
+  function getAnimLabel(value: string) {
+    if (value === "random") return "随机待机动画";
+    const opt = idleSpriteOptions.find(o => o.key === value);
+    return opt?.label ?? value;
+  }
+
+  const allOptions = [{ key: "random", label: "随机待机动画", w: 0, h: 0 }, ...idleSpriteOptions];
+
   return (
-    <div className="idle-anim-settings">
+    <div className="idle-anim-settings" ref={wrapRef}>
       <Toggle label="启用待机随机动画" checked={config.enabled} onChange={enabled => onChange({ ...config, enabled })} />
       <div className="panel-divider" />
-      <h3 className="panel-subtitle">可选动画</h3>
+      <h3 className="panel-subtitle">可选动画池</h3>
       <div className="idle-sprite-grid">
         {idleSpriteOptions.map(opt => (
           <button
@@ -1685,7 +1663,61 @@ function IdleAnimSettings({ config, onChange }: { config: IdleAnimConfig; onChan
         format={v => `${v} 次`}
         onChange={(low, high) => onChange({ ...config, repeatMin: low, repeatMax: high })}
       />
-      <p className="note">待机时在勾选的动画中随机挑选播放。若未勾选任何动画则默认使用 idle_bubble。</p>
+      <div className="panel-divider" />
+      <h3 className="panel-subtitle">各 Clawd 工作时待机动画</h3>
+      <p className="note">有会话运行但没有工具调用时，播放选中的动画。工具调用时仍会切换到对应动画。</p>
+      <div className="clawd-idle-grid">
+        {[0, 1, 2, 3].map(i => {
+          const currentValue = companionAnimValues[i];
+          const isOpen = openPicker === i;
+          return (
+            <div key={i} className="clawd-idle-item">
+              <span className="clawd-idle-label">{companionLabels[i]}</span>
+              <div className="clawd-idle-picker-wrap">
+                <button className={`clawd-idle-picker ${isOpen ? "active" : ""}`} onClick={() => setOpenPicker(isOpen ? null : i)}>
+                  <div className="sprite-preview-box">
+                    {currentValue === "random" ? (
+                      <span className="clawd-idle-random">?</span>
+                    ) : (
+                      <span
+                        className={`clawd-sprite clawd-sprite-${currentValue} clawd-gif-${idleBubbleGifClass[currentValue] ?? currentValue}`}
+                        style={{ transform: `scale(${48 / Math.max(168, 168)})` }}
+                      />
+                    )}
+                  </div>
+                  <span className="clawd-idle-value">{getAnimLabel(currentValue)}</span>
+                </button>
+                {isOpen && (
+                  <div className="clawd-idle-dropdown">
+                    {allOptions.map(opt => (
+                      <button
+                        key={opt.key}
+                        className={`clawd-idle-option ${currentValue === opt.key ? "active" : ""}`}
+                        onClick={() => { setCompanionAnim(i, opt.key); setOpenPicker(null); }}
+                      >
+                        {opt.key === "random" ? (
+                          <span className="clawd-idle-random-sm">?</span>
+                        ) : (
+                          <div className="sprite-preview-box small">
+                            <span
+                              className={`clawd-sprite clawd-sprite-${opt.key} clawd-gif-${idleBubbleGifClass[opt.key] ?? opt.key}`}
+                              style={{ transform: `scale(${36 / Math.max(opt.w, opt.h)})` }}
+                            />
+                          </div>
+                        )}
+                        <span>{opt.label}</span>
+                      </button>
+                    ))}
+                    <button className="clawd-idle-option reset" onClick={() => { setCompanionAnim(i, "random"); setOpenPicker(null); }}>
+                      重置为随机
+                    </button>
+                  </div>
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }
