@@ -399,7 +399,54 @@ function PetApp() {
     return () => off();
   }, []);
 
-// 待机动画（主 Clawd）  useEffect(() => {    const cfg = settings.idleAnim;    const mainIdle = (settings as any).mainClawdIdleAnimation ?? "random";    // 如果指定了固定动画（非 random），直接播放指定的动画    if (mainIdle !== "random" && petState === "idle" && !editMode) {      setIdleBubbleSprite(mainIdle);      idleTimers.current.forEach(clearTimeout);      idleTimers.current = [];      return;    }    // 随机动画模式    if (!cfg?.enabled || petState !== "idle" || editMode) {      setIdleBubbleSprite(null);      idleTimers.current.forEach(clearTimeout);      idleTimers.current = [];      return;    }    const pool = cfg.selectedSprites.length > 0 ? cfg.selectedSprites : ["idle"];    function playBatch() {      const sprite = pool[Math.floor(Math.random() * pool.length)];      const range = cfg!.repeatMax - cfg!.repeatMin;      const repeats = cfg!.repeatMin + (range > 0 ? Math.floor(Math.random() * (range + 1)) : 0);      let count = 0;      function show() {        setIdleBubbleSprite(sprite);        const t = window.setTimeout(() => {          setIdleBubbleSprite(null);          count++;          if (count < repeats) {            idleTimers.current = [window.setTimeout(show, 1500)];          } else {            scheduleNext();          }        }, 2500);        idleTimers.current = [t];      }      show();    }    function scheduleNext() {      const iMin = cfg!.intervalMin * 1000;      const iMax = cfg!.intervalMax * 1000;      const delay = iMin + Math.random() * (iMax - iMin);      idleTimers.current = [window.setTimeout(playBatch, delay)];    }    scheduleNext();    return () => { idleTimers.current.forEach(clearTimeout); idleTimers.current = []; };  }, [petState, editMode, settings.idleAnim, (settings as any).mainClawdIdleAnimation]);
+  // 待机动画（主 Clawd）
+  useEffect(() => {
+    const cfg = settings.idleAnim;
+    const mainIdle = (settings as any).mainClawdIdleAnimation ?? "random";
+    // 固定动画模式：始终播放指定的 GIF，替代静态 PNG
+    if (mainIdle !== "random" && !editMode) {
+      setIdleBubbleSprite(mainIdle);
+      idleTimers.current.forEach(clearTimeout);
+      idleTimers.current = [];
+      return;
+    }
+    // 随机动画模式：仅在 idle 状态且启用时播放
+    if (!cfg?.enabled || petState !== "idle" || editMode) {
+      setIdleBubbleSprite(null);
+      idleTimers.current.forEach(clearTimeout);
+      idleTimers.current = [];
+      return;
+    }
+    const pool = cfg.selectedSprites.length > 0 ? cfg.selectedSprites : ["idle"];
+    function playBatch() {
+      const sprite = pool[Math.floor(Math.random() * pool.length)];
+      const range = cfg!.repeatMax - cfg!.repeatMin;
+      const repeats = cfg!.repeatMin + (range > 0 ? Math.floor(Math.random() * (range + 1)) : 0);
+      let count = 0;
+      function show() {
+        setIdleBubbleSprite(sprite);
+        const t = window.setTimeout(() => {
+          setIdleBubbleSprite(null);
+          count++;
+          if (count < repeats) {
+            idleTimers.current = [window.setTimeout(show, 1500)];
+          } else {
+            scheduleNext();
+          }
+        }, 2500);
+        idleTimers.current = [t];
+      }
+      show();
+    }
+    function scheduleNext() {
+      const iMin = cfg!.intervalMin * 1000;
+      const iMax = cfg!.intervalMax * 1000;
+      const delay = iMin + Math.random() * (iMax - iMin);
+      idleTimers.current = [window.setTimeout(playBatch, delay)];
+    }
+    scheduleNext();
+    return () => { idleTimers.current.forEach(clearTimeout); idleTimers.current = []; };
+  }, [petState, editMode, settings.idleAnim, (settings as any).mainClawdIdleAnimation]);
 
   // 同步 idleBubbleSprite 到设置面板
   useEffect(() => {
