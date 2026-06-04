@@ -134,6 +134,7 @@ function useCompanion() {
   const [toolStreams, setToolStreams] = useState<ToolStream[]>([]);
   const [activePermissions, setActivePermissions] = useState<PermissionRequest[]>([]);
   const [sessions, setSessions] = useState<CompanionSession[]>([]);
+  const [exitingSessions, setExitingSessions] = useState<Set<string>>(new Set());
   const sessionsRef = useRef<Map<string, CompanionSession>>(new Map());
   const ribbonTimers = useRef<Map<string, number>>(new Map());
   const ribbonTimestamps = useRef<Map<string, number>>(new Map());
@@ -175,22 +176,53 @@ function useCompanion() {
     const offConnection = window.companion.onConnection(setConnection);
     const offEvent = window.companion.onEvent(event => {
       // 多会话追踪
-      if (event.sessionId) {
-        const sid = event.sessionId;
+      const sid = event.sessionId;
+      const isDone = event.event === "done" || event.event === "error";
+      console.log(`[DEBUG-COMP] event=${event.event} sid=${sid ?? "NONE"} activeSid=${connection.activeSessionId ?? "NONE"} sessions=${sessionsRef.current.size}`);
+
+      if (sid) {
         const existing = sessionsRef.current.get(sid);
         let title = existing?.title ?? "";
         if (event.event === "prompt_submit" && !title) {
           title = event.message.slice(0, 20) || sid.slice(0, 6);
         }
+        const wasActive = existing?.isActive ?? true;
         const session: CompanionSession = {
           sessionId: sid,
           title: title || (existing?.title) || sid.slice(0, 6),
           state: stateFromEvent(event),
           lastEvent: event,
           lastEventTime: Date.now(),
-          isActive: event.event !== "done" && event.event !== "error"
+          isActive: !isDone
         };
         sessionsRef.current.set(sid, session);
+        setSessions(Array.from(sessionsRef.current.values()));
+        console.log(`[DEBUG-COMP] updated session ${sid} isActive=${!isDone} wasActive=${wasActive} total=${sessionsRef.current.size}`);
+        // 刚变为非活跃 → 标记退出动画
+        if (wasActive && isDone) {
+          console.log(`[DEBUG-COMP] marking ${sid} as exiting`);
+          setExitingSessions(prev => new Set(prev).add(sid));
+          setTimeout(() => {
+            console.log(`[DEBUG-COMP] removing ${sid} from DOM`);
+            setExitingSessions(prev => { const next = new Set(prev); next.delete(sid); return next; });
+            sessionsRef.current.delete(sid);
+            setSessions(Array.from(sessionsRef.current.values()));
+          }, 700);
+        }
+      } else if (isDone) {
+        console.log(`[DEBUG-COMP] done event without sessionId, marking all active as exiting`);
+        for (const [id, s] of sessionsRef.current) {
+          if (s.isActive) {
+            sessionsRef.current.set(id, { ...s, isActive: false });
+            setExitingSessions(prev => new Set(prev).add(id));
+            const exitId = id;
+            setTimeout(() => {
+              setExitingSessions(prev => { const next = new Set(prev); next.delete(exitId); return next; });
+              sessionsRef.current.delete(exitId);
+              setSessions(Array.from(sessionsRef.current.values()));
+            }, 700);
+          }
+        }
         setSessions(Array.from(sessionsRef.current.values()));
       }
 
@@ -321,11 +353,11 @@ function useCompanion() {
     setActivePermissions(prev => prev.filter(p => p.id !== id));
   }
 
-  return { settings, updateSettings, connection, events, currentEvent, petState, toolStreams, activePermissions, sessions, respondToPermission };
+  return { settings, updateSettings, connection, events, currentEvent, petState, toolStreams, activePermissions, sessions, exitingSessions, respondToPermission };
 }
 
 function PetApp() {
-  const { settings, updateSettings, currentEvent, petState, toolStreams, activePermissions, sessions, connection, respondToPermission } = useCompanion();
+  const { settings, updateSettings, currentEvent, petState, toolStreams, activePermissions, sessions, exitingSessions, connection, respondToPermission } = useCompanion();
   const editMode = settings.editPosition;
   const dragging = useRef<string | null>(null);
   const dragStart = useRef<{ mx: number; my: number; ox: number; oy: number }>({ mx: 0, my: 0, ox: 0, oy: 0 });
@@ -393,7 +425,7 @@ function PetApp() {
       const handle = (e: MouseEvent) => {
         if (dragging.current) return;
         const target = e.target as HTMLElement;
-        void window.companion.setPetInteractive(!!target.closest('.edit-zone, .zone-resize, .edge-handle'));
+        void window.companion.setPetInteractive(!!target.closest('.edit-zone, .zone-resize, .edge-handle, .edit-zone-companion'));
       };
       window.addEventListener('mousemove', handle);
       return () => {
@@ -616,6 +648,19 @@ function PetApp() {
             <span className="edit-zone-label">权限卡片</span>
             <span className="zone-resize" onMouseDown={e => beginResize("permission", e)} />
           </div>
+          {settings.multiSessionEnabled && [0, 1, 2].map(i => (
+            <div key={i} className="edit-zone edit-zone-companion"
+              style={{
+                left: Math.round((226 - cw) / 2) + 100 + i * 60,
+                top: -80 - i * 60,
+                transform: `translate(${offsets.companion?.x ?? 0}px, ${offsets.companion?.y ?? 0}px)`,
+                width: Math.round(168 * (settings.companionScale ?? 0.6)),
+                height: Math.round(120 * (settings.companionScale ?? 0.6))
+              }}
+              onMouseDown={e => begin("companion", e)}>
+              <span className="edit-zone-label">小 Clawd {i + 1}</span>
+            </div>
+          ))}
         </section>
       </main>
     );
@@ -646,13 +691,15 @@ function PetApp() {
         {settings.showBubbles && toolStreams.length > 0 ? (
           <ToolStreams streams={toolStreams} offset={offsets.ribbon} />
         ) : null}
-        {settings.multiSessionEnabled && sessions.filter(s => s.isActive && s.sessionId !== connection.activeSessionId).slice(0, 3).map((session, i) => (
+        {settings.multiSessionEnabled && sessions.filter(s => (s.isActive || exitingSessions.has(s.sessionId)) && (exitingSessions.has(s.sessionId) || s.sessionId !== connection.activeSessionId)).slice(0, 3).map((session, i) => (
           <CompanionClawd
             key={session.sessionId}
             session={session}
             index={i}
             settings={settings}
             showTitle={settings.showSessionTitle}
+            exiting={exitingSessions.has(session.sessionId)}
+            mainClawdOffset={offsets.clawd ?? { x: 0, y: 0 }}
           />
         ))}
       </section>
@@ -869,18 +916,19 @@ function ClawdSprite({ state, idleBubble, eventType, stateAnimations }: { state:
   return <span className={`clawd-sprite clawd-sprite-${spriteState} clawd-gif-${clawdGifName[state]}`} aria-hidden="true" />;
 }
 
-function CompanionClawd({ session, index, settings, showTitle }: { session: CompanionSession; index: number; settings: CompanionSettings; showTitle: boolean }) {
+function CompanionClawd({ session, index, settings, showTitle, exiting, mainClawdOffset }: { session: CompanionSession; index: number; settings: CompanionSettings; showTitle: boolean; exiting?: boolean; mainClawdOffset: { x: number; y: number } }) {
   const scale = settings.companionScale ?? 0.6;
-  // 默认在大 Clawd 上方，垂直排列
-  const offsetY = -(index + 1) * (120 * scale + 20);
-  const offsetX = 20 + index * 10;
+  const companionOff = settings.positionOffsets?.companion ?? { x: 0, y: 0 };
+  // 从大 Clawd 位置出发，加上 companion 偏移和每个小 Clawd 的递增偏移
+  const baseX = mainClawdOffset.x + companionOff.x + index * 100;
+  const baseY = mainClawdOffset.y + companionOff.y - index * 80;
 
   return (
     <div
-      className={`companion-clawd companion-enter companion-state-${session.state}`}
+      className={`companion-clawd ${exiting ? "companion-exit" : "companion-enter"}`}
       style={{
-        transform: `translate(${offsetX}px, ${offsetY}px) scale(${scale})`,
-        opacity: 1
+        transform: `translate(${baseX}px, ${baseY}px) scale(${scale})`,
+        ["--companion-scale" as any]: scale
       }}
     >
       {showTitle && session.title && (

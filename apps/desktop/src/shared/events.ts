@@ -147,6 +147,7 @@ export interface CompanionSettings {
     bubble?: { x: number; y: number };
     ribbon?: { x: number; y: number };
     permission?: { x: number; y: number };
+    companion?: { x: number; y: number };
     view?: { x: number; y: number };
   };
   zoneSizes?: {
@@ -243,6 +244,7 @@ export const defaultSettings: CompanionSettings = {
     bubble: { x: 727, y: -41 },
     ribbon: { x: 677, y: -80 },
     permission: { x: 560, y: -20 },
+    companion: { x: 80, y: -120 },
     view: { x: 0, y: 0 }
   },
   zoneSizes: {},
