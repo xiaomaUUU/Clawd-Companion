@@ -737,9 +737,13 @@ function PetApp() {
         {settings.showBubbles && toolStreams.length > 0 ? (
           <ToolStreams streams={toolStreams} offset={offsets.ribbon} />
         ) : null}
+
+        <div style={{ position: "fixed", bottom: 0, left: 0, background: "rgba(0,0,0,0.8)", color: "#0f0", font: "10px monospace", padding: "4px 8px", zIndex: 9999, maxWidth: 400, pointerEvents: "none" }}>
+          mainIdle:{(settings as any).mainClawdIdleAnimation ?? "random"} ps:{petState} sp:{idleBubbleSprite ?? "null"} tool:{String(petState.startsWith("tool_") || petState === "waiting_permission")}
+          <br/>sessions:{sessions.length} main:{mainSessionId?.slice(0, 6) ?? "none"} exiting:{exitingSessions.size}
+          {sessions.map((s, i) => <span key={i} style={{ display: "block" }}>{s.sessionId.slice(0, 6)} act:{String(s.isActive)} state:{s.state} ev:{s.eventCount}</span>)}
+        </div>
         {(() => {
-          console.log("[D-COMPANION] multi=" + settings.multiSessionEnabled, "mainSid=" + mainSessionId?.slice?.(0, 6), "sessions=" + sessions.length, "exiting=" + exitingSessions.size, "sessions:", sessions.map(s => `${s.sessionId.slice(0, 6)} active=${s.isActive}`));
-          if (!settings.multiSessionEnabled || !mainSessionId) return null;
           const companions = sessions
             .filter(s => s.sessionId !== mainSessionId && (s.isActive || exitingSessions.has(s.sessionId)))
             .slice(0, 3);
