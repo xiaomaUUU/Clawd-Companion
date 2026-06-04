@@ -986,6 +986,18 @@ h1 { max-width: 760px; margin: 0; font-size: clamp(32px, 4.2vw, 54px); line-heig
 .tool-rank-bar { flex: 1; height: 8px; background: var(--line); border-radius: 4px; overflow: hidden; }
 .tool-rank-fill { height: 100%; background: var(--honey); border-radius: 4px; transition: width 0.3s; }
 .tool-rank-count { min-width: 30px; text-align: right; font-weight: 700; color: var(--ink); }
+
+.stats-danger-zone { margin-top: 8px; }
+.stats-danger-zone summary {
+  font-size: 12px;
+  color: var(--muted);
+  cursor: pointer;
+  padding: 4px 0;
+  list-style: none;
+}
+.stats-danger-zone summary::before { content: "▸ "; }
+.stats-danger-zone[open] summary::before { content: "▾ "; }
+.stats-danger-zone .inline-action { margin-top: 8px; }
 .stat-label { display: block; margin-top: 4px; font-size: 11px; color: var(--muted); }
 .panel { min-height: 160px; padding: 20px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); box-shadow: 0 12px 34px rgba(43, 31, 21, 0.08); backdrop-filter: blur(18px); scroll-margin-top: 76px; }
 .panel.wide { grid-column: 1 / -1; }

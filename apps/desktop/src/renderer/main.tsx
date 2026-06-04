@@ -1596,12 +1596,15 @@ function StatsPanel({ stats }: { stats: any }) {
         </>
       )}
       <div className="panel-divider" />
-      <button className="inline-action danger" onClick={async () => {
-        if (confirm("确定要清空所有统计数据吗？")) {
-          await window.companion.resetStats();
-          window.location.reload();
-        }
-      }}>清空统计数据</button>
+      <details className="stats-danger-zone">
+        <summary>数据管理</summary>
+        <button className="inline-action danger" onClick={async () => {
+          if (confirm("确定要清空所有统计数据吗？此操作不可恢复。")) {
+            await window.companion.resetStats();
+            window.location.reload();
+          }
+        }}>清空统计数据</button>
+      </details>
     </div>
   );
 }
