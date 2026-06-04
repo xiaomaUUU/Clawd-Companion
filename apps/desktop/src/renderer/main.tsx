@@ -135,6 +135,7 @@ function useCompanion() {
   const [activePermissions, setActivePermissions] = useState<PermissionRequest[]>([]);
   const [sessions, setSessions] = useState<CompanionSession[]>([]);
   const [exitingSessions, setExitingSessions] = useState<Set<string>>(new Set());
+  const [mainSessionId, setMainSessionId] = useState<string | null>(null);
   const sessionsRef = useRef<Map<string, CompanionSession>>(new Map());
   const ribbonTimers = useRef<Map<string, number>>(new Map());
   const ribbonTimestamps = useRef<Map<string, number>>(new Map());
@@ -181,6 +182,10 @@ function useCompanion() {
 
       if (sid) {
         const existing = sessionsRef.current.get(sid);
+        // 第一个会话自动成为主 Clawd
+        if (!mainSessionId && sessionsRef.current.size === 0) {
+          setMainSessionId(sid);
+        }
         let title = existing?.title ?? "";
         if (event.event === "prompt_submit" && !title) {
           title = event.message.slice(0, 20) || sid.slice(0, 6);
@@ -205,6 +210,7 @@ function useCompanion() {
           }, 700);
         }
       } else if (isDone) {
+        // done 事件无 sessionId → 标记所有活跃会话为退出
         for (const [id, s] of sessionsRef.current) {
           if (s.isActive) {
             sessionsRef.current.set(id, { ...s, isActive: false });
@@ -219,6 +225,21 @@ function useCompanion() {
         }
         setSessions(Array.from(sessionsRef.current.values()));
       }
+
+      // 超时检测：超过 10 秒没收到事件的会话自动标记为退出
+      for (const [id, s] of sessionsRef.current) {
+        if (s.isActive && Date.now() - s.lastEventTime > 10_000 && !exitingSessions.has(id)) {
+          sessionsRef.current.set(id, { ...s, isActive: false });
+          setExitingSessions(prev => new Set(prev).add(id));
+          const exitId = id;
+          setTimeout(() => {
+            setExitingSessions(prev => { const next = new Set(prev); next.delete(exitId); return next; });
+            sessionsRef.current.delete(exitId);
+            setSessions(Array.from(sessionsRef.current.values()));
+          }, 700);
+        }
+      }
+      setSessions(Array.from(sessionsRef.current.values()));
 
       // 节流：100ms 内只刷新一次事件列表和 petState，减少高频事件时的渲染
       const now = Date.now();
@@ -347,11 +368,11 @@ function useCompanion() {
     setActivePermissions(prev => prev.filter(p => p.id !== id));
   }
 
-  return { settings, updateSettings, connection, events, currentEvent, petState, toolStreams, activePermissions, sessions, exitingSessions, respondToPermission };
+  return { settings, updateSettings, connection, events, currentEvent, petState, toolStreams, activePermissions, sessions, exitingSessions, mainSessionId, respondToPermission };
 }
 
 function PetApp() {
-  const { settings, updateSettings, currentEvent, petState, toolStreams, activePermissions, sessions, exitingSessions, connection, respondToPermission } = useCompanion();
+  const { settings, updateSettings, currentEvent, petState, toolStreams, activePermissions, sessions, exitingSessions, mainSessionId, connection, respondToPermission } = useCompanion();
   const editMode = settings.editPosition;
   const dragging = useRef<string | null>(null);
   const dragStart = useRef<{ mx: number; my: number; ox: number; oy: number }>({ mx: 0, my: 0, ox: 0, oy: 0 });
@@ -690,15 +711,9 @@ function PetApp() {
           <ToolStreams streams={toolStreams} offset={offsets.ribbon} />
         ) : null}
         {(() => {
-          if (!settings.multiSessionEnabled) return null;
-          const activeSessions = sessions.filter(s => s.isActive);
-          // 只有 2 个以上活跃会话时才显示伴生 Clawd
-          if (activeSessions.length < 2) return null;
-          // 取最近活动的会话作为主 Clawd，其余为伴生
-          const sorted = [...activeSessions].sort((a, b) => b.lastEventTime - a.lastEventTime);
-          const mainSid = sorted[0].sessionId;
-          const companions = activeSessions
-            .filter(s => s.sessionId !== mainSid)
+          if (!settings.multiSessionEnabled || !mainSessionId) return null;
+          const companions = sessions
+            .filter(s => s.sessionId !== mainSessionId && (s.isActive || exitingSessions.has(s.sessionId)))
             .slice(0, 3);
           if (companions.length === 0) return null;
           return companions.map((session, i) => (
