@@ -179,8 +179,6 @@ function useCompanion() {
       // 多会话追踪
       const sid = event.sessionId;
       const isDone = event.event === "done" || event.event === "error";
-      console.log("[D-TRACK]", "event=" + event.event, "sid=" + sid?.slice?.(0, 8), "mapSize=" + sessionsRef.current.size, "mainSid=" + mainSessionId?.slice?.(0, 6));
-
       if (sid) {
         const existing = sessionsRef.current.get(sid);
         // 第一个会话自动成为主 Clawd
@@ -408,9 +406,15 @@ function PetApp() {
     const hasActiveSession = sessions.some(s => s.isActive);
     // 固定动画模式：仅在有会话且无工具调用时播放指定的 GIF
     const isToolState = petState.startsWith("tool_") || petState === "waiting_permission";
-    console.log("[D-IDLE]", "mainIdle=" + mainIdle, "hasActiveSession=" + hasActiveSession, "isToolState=" + isToolState, "petState=" + petState, "enabled=" + cfg?.enabled, "editMode=" + editMode);
-    if (mainIdle !== "random" && hasActiveSession && !editMode && !isToolState) {
-      console.log("[D-IDLE] FIXED: setting idleBubbleSprite to", mainIdle);
+
+    if (isToolState) {
+      // 工具调用中 → 清除固定动画，让 ClawdSprite 根据 petState 显示工具动画
+      setIdleBubbleSprite(null);
+      idleTimers.current.forEach(clearTimeout);
+      idleTimers.current = [];
+      return;
+    }
+    if (mainIdle !== "random" && hasActiveSession && !editMode) {
       setIdleBubbleSprite(mainIdle);
       idleTimers.current.forEach(clearTimeout);
       idleTimers.current = [];
@@ -418,13 +422,11 @@ function PetApp() {
     }
     // 随机动画模式：仅在 idle 状态且启用时播放
     if (!cfg?.enabled || petState !== "idle" || editMode) {
-      console.log("[D-IDLE] CLEAR: idleBubbleSprite=null");
       setIdleBubbleSprite(null);
       idleTimers.current.forEach(clearTimeout);
       idleTimers.current = [];
       return;
     }
-    console.log("[D-IDLE] RANDOM: starting random cycle");
     const pool = cfg.selectedSprites.length > 0 ? cfg.selectedSprites : ["idle"];
     function playBatch() {
       const sprite = pool[Math.floor(Math.random() * pool.length)];
@@ -738,18 +740,9 @@ function PetApp() {
           <ToolStreams streams={toolStreams} offset={offsets.ribbon} />
         ) : null}
 
-        <div style={{ position: "fixed", bottom: 0, left: 0, background: "rgba(0,0,0,0.8)", color: "#0f0", font: "10px monospace", padding: "4px 8px", zIndex: 9999, maxWidth: 400, pointerEvents: "none" }}>
-          mainIdle:{(settings as any).mainClawdIdleAnimation ?? "random"} ps:{petState} sp:{idleBubbleSprite ?? "null"} tool:{String(petState.startsWith("tool_") || petState === "waiting_permission")}
-          <br/>sessions:{sessions.length} main:{mainSessionId?.slice(0, 6) ?? "none"} exiting:{exitingSessions.size}
-          {sessions.map((s, i) => <span key={i} style={{ display: "block" }}>{s.sessionId.slice(0, 6)} act:{String(s.isActive)} state:{s.state} ev:{s.eventCount}</span>)}
-        </div>
-        {(() => {
-          const companions = sessions
+        {settings.multiSessionEnabled && mainSessionId && sessions
             .filter(s => s.sessionId !== mainSessionId && (s.isActive || exitingSessions.has(s.sessionId)))
-            .slice(0, 3);
-          console.log("[D-COMPANION] companions=" + companions.length);
-          if (companions.length === 0) return null;
-          return companions.map((session, i) => (
+            .slice(0, 3).map((session, i) => (
             <CompanionClawd
               key={session.sessionId}
               session={session}
@@ -759,8 +752,7 @@ function PetApp() {
               exiting={exitingSessions.has(session.sessionId)}
               mainClawdOffset={offsets.clawd ?? { x: 0, y: 0 }}
             />
-          ));
-        })()}
+          ))}
       </section>
     </main>
   );
