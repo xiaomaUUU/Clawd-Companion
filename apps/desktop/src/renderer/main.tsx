@@ -178,7 +178,6 @@ function useCompanion() {
       // 多会话追踪
       const sid = event.sessionId;
       const isDone = event.event === "done" || event.event === "error";
-      console.log(`[DEBUG-COMP] event=${event.event} sid=${sid ?? "NONE"} activeSid=${connection.activeSessionId ?? "NONE"} sessions=${sessionsRef.current.size}`);
 
       if (sid) {
         const existing = sessionsRef.current.get(sid);
@@ -197,20 +196,15 @@ function useCompanion() {
         };
         sessionsRef.current.set(sid, session);
         setSessions(Array.from(sessionsRef.current.values()));
-        console.log(`[DEBUG-COMP] updated session ${sid} isActive=${!isDone} wasActive=${wasActive} total=${sessionsRef.current.size}`);
-        // 刚变为非活跃 → 标记退出动画
         if (wasActive && isDone) {
-          console.log(`[DEBUG-COMP] marking ${sid} as exiting`);
           setExitingSessions(prev => new Set(prev).add(sid));
           setTimeout(() => {
-            console.log(`[DEBUG-COMP] removing ${sid} from DOM`);
             setExitingSessions(prev => { const next = new Set(prev); next.delete(sid); return next; });
             sessionsRef.current.delete(sid);
             setSessions(Array.from(sessionsRef.current.values()));
           }, 700);
         }
       } else if (isDone) {
-        console.log(`[DEBUG-COMP] done event without sessionId, marking all active as exiting`);
         for (const [id, s] of sessionsRef.current) {
           if (s.isActive) {
             sessionsRef.current.set(id, { ...s, isActive: false });
@@ -928,7 +922,8 @@ function CompanionClawd({ session, index, settings, showTitle, exiting, mainClaw
       className={`companion-clawd ${exiting ? "companion-exit" : "companion-enter"}`}
       style={{
         transform: `translate(${baseX}px, ${baseY}px) scale(${scale})`,
-        ["--companion-scale" as any]: scale
+        ["--companion-scale" as any]: scale,
+        outline: "2px solid red"
       }}
     >
       {showTitle && session.title && (
@@ -1235,6 +1230,20 @@ function SettingsApp() {
                 <div className="test-grid">
                   {sampleEvents.map(event => <button key={`${event.event}-${event.tool ?? "x"}`} onClick={() => test(event)}>{event.title}</button>)}
                   <button onClick={() => window.companion.triggerIdleBubble()}>待机动画</button>
+                  <button onClick={async () => {
+                    const sid1 = "test-" + Math.random().toString(36).slice(2, 8);
+                    const sid2 = "test-" + Math.random().toString(36).slice(2, 8);
+                    const send = (e: CompanionEvent) => window.companion.sendTestEvent(e);
+                    // 会话 1 开始并运行 Read
+                    await send({ ...makeEvent("session_start", "manual", "会话 1 测试", "前端"), sessionId: sid1, tool: undefined });
+                    await send({ ...makeEvent("tool_start", "manual", "读取文件", "package.json"), sessionId: sid1, tool: "Read" as ToolName });
+                    // 会话 2 开始并运行 Bash
+                    await send({ ...makeEvent("session_start", "manual", "会话 2 测试", "后端"), sessionId: sid2, tool: undefined });
+                    await send({ ...makeEvent("tool_start", "manual", "执行命令", "npm install"), sessionId: sid2, tool: "Bash" as ToolName });
+                  }}>多会话测试</button>
+                  <button onClick={async () => {
+                    await window.companion.sendTestEvent({ ...makeEvent("done", "manual", "任务完成", "两个会话都结束了"), sessionId: undefined, tool: undefined });
+                  }}>结束全部会话</button>
                 </div>
               )}
               {advancedTab === "config" && (

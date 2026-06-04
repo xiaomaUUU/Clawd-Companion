@@ -1333,7 +1333,7 @@ input[type="range"]:focus { box-shadow: none; }
 .companion-clawd {
   position: absolute;
   left: 0;
-  top: 0;
+  bottom: 0;
   transform-origin: bottom center;
   pointer-events: none;
   z-index: 5;
@@ -1345,24 +1345,12 @@ input[type="range"]:focus { box-shadow: none; }
   animation: companion-disappear 0.6s ease-out forwards;
 }
 @keyframes companion-appear {
-  from {
-    opacity: 0;
-    transform: translateY(-30px) scale(var(--companion-scale, 0.6));
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0) scale(var(--companion-scale, 0.6));
-  }
+  from { opacity: 0; }
+  to { opacity: 1; }
 }
 @keyframes companion-disappear {
-  0% {
-    opacity: 1;
-    transform: scale(var(--companion-scale, 0.6)) translateY(0);
-  }
-  100% {
-    opacity: 0;
-    transform: scale(calc(var(--companion-scale, 0.6) * 0.3)) translateY(-40px);
-  }
+  0% { opacity: 1; }
+  100% { opacity: 0; }
 }
 .companion-title {
   position: absolute;
