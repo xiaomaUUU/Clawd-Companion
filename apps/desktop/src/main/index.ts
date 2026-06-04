@@ -873,18 +873,23 @@ ipcMain.handle("update:install", () => {
   if (!updateStatus.downloaded) {
     return { ok: false, error: "没有已下载的更新。" };
   }
-  // 优先使用 electron-updater 的标准重启安装方式
+  // 使用 powershell -Verb RunAs 自动请求管理员权限启动安装包
+  if (downloadedInstallerPath) {
+    const { exec } = require("node:child_process");
+    exec(`powershell -Command "Start-Process '${downloadedInstallerPath}' -Verb RunAs"`, (error) => {
+      if (error) {
+        logRuntime("update:install elevated failed: " + error.message);
+      }
+    });
+    setTimeout(() => app.quit(), 1500);
+    return { ok: true };
+  }
+  // fallback：尝试 electron-updater 标准方式
   try {
     autoUpdater.quitAndInstall();
     return { ok: true };
   } catch {
-    // fallback：手动启动下载好的安装包
-  }
-  if (downloadedInstallerPath) {
-    const { exec } = require("node:child_process");
-    exec(`powershell -Command "Start-Process '${downloadedInstallerPath}' -Verb RunAs"`);
-    setTimeout(() => app.quit(), 1500);
-    return { ok: true };
+    // 忽略
   }
   logRuntime("update:install failed - downloadedInstallerPath is undefined");
   return { ok: false, error: "找不到已下载的安装包路径，请尝试手动下载。" };
