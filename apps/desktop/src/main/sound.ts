@@ -33,17 +33,28 @@ function resolveFile(override: string | null, name: "done" | "error" | "permissi
   return null;
 }
 
-// Cache: path → data URL
+// Simple LRU: path → data URL, evict oldest when exceeding MAX_CACHE
 const dataUrlCache = new Map<string, string>();
+const MAX_CACHE = 8;
 
 function fileToDataUrl(path: string): string | null {
   const cached = dataUrlCache.get(path);
-  if (cached) return cached;
+  if (cached) {
+    // Move to end (most recently used)
+    dataUrlCache.delete(path);
+    dataUrlCache.set(path, cached);
+    return cached;
+  }
   try {
     const buf = readFileSync(path);
     const ext = path.slice(path.lastIndexOf(".")).toLowerCase();
     const mime = ext === ".mp3" ? "audio/mpeg" : ext === ".ogg" ? "audio/ogg" : ext === ".flac" ? "audio/flac" : "audio/wav";
     const url = `data:${mime};base64,${buf.toString("base64")}`;
+    // Evict oldest entry if cache is full
+    if (dataUrlCache.size >= MAX_CACHE) {
+      const oldest = dataUrlCache.keys().next().value;
+      if (oldest !== undefined) dataUrlCache.delete(oldest);
+    }
     dataUrlCache.set(path, url);
     return url;
   } catch (err) {

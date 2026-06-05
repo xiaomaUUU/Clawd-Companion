@@ -486,7 +486,13 @@ export async function wakeupCompanion(log: (msg: string) => void = () => {}): Pr
 async function main() {
   const raw = readStdin();
   if (!raw.trim()) return;
-  const payload = JSON.parse(raw) as HookPayload;
+  let payload: HookPayload;
+  try {
+    payload = JSON.parse(raw) as HookPayload;
+  } catch {
+    process.stderr.write("[clawd] forward error: invalid JSON from stdin\n");
+    return;
+  }
 
   if (isPermissionEvent(payload)) {
     try {

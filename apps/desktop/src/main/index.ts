@@ -739,8 +739,17 @@ function checkHooks(): HooksStatus {
     return { installed: false, configExists: false, hookCount: 0, requiredCount: 6, missingEvents: [...REQUIRED_HOOK_EVENTS], commandMatches: false };
   }
 
-  const settingsJson = JSON.parse(readFileSync(claudeSettingsPath, "utf8"));
-  const hooks = settingsJson.hooks ?? {};
+  let settingsJson: Record<string, unknown>;
+  try {
+    const parsed = JSON.parse(readFileSync(claudeSettingsPath, "utf8"));
+    if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+      return { installed: false, configExists: true, hookCount: 0, requiredCount: 6, missingEvents: [...REQUIRED_HOOK_EVENTS], commandMatches: false };
+    }
+    settingsJson = parsed as Record<string, unknown>;
+  } catch {
+    return { installed: false, configExists: true, hookCount: 0, requiredCount: 6, missingEvents: [...REQUIRED_HOOK_EVENTS], commandMatches: false };
+  }
+  const hooks = (settingsJson.hooks ?? {}) as Record<string, unknown[]>;
   const expectedCommand = getHookCommand();
   const missing: string[] = [];
   let commandOk = true;
@@ -752,7 +761,7 @@ function checkHooks(): HooksStatus {
       missing.push(eventName);
     } else {
       count++;
-      const hookCmd = entries[0]?.hooks?.[0]?.command;
+      const hookCmd = (entries[0] as any)?.hooks?.[0]?.command;
       if (hookCmd !== expectedCommand) commandOk = false;
     }
   }
@@ -771,16 +780,21 @@ function installHooks(): { success: boolean; error?: string } {
   try {
     let settingsJson: Record<string, unknown> = {};
     if (existsSync(claudeSettingsPath)) {
-      settingsJson = JSON.parse(readFileSync(claudeSettingsPath, "utf8"));
+      const parsed = JSON.parse(readFileSync(claudeSettingsPath, "utf8"));
+      if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+        return { success: false, error: "settings.json 格式错误：期望对象" };
+      }
+      settingsJson = parsed as Record<string, unknown>;
       copyFileSync(claudeSettingsPath, backupPath);
     }
 
     const command = getHookCommand();
     const hookEntry = { matcher: "*", hooks: [{ type: "command", command }] };
 
-    settingsJson.hooks = settingsJson.hooks ?? {};
+    const hooks = (settingsJson.hooks ?? {}) as Record<string, unknown[]>;
+    settingsJson.hooks = hooks;
     for (const eventName of REQUIRED_HOOK_EVENTS) {
-      (settingsJson.hooks as Record<string, unknown[]>)[eventName] = [hookEntry];
+      hooks[eventName] = [hookEntry];
     }
 
     const dir = join(homedir(), ".claude");
@@ -800,21 +814,26 @@ function repairHooks(): { success: boolean; fixed: string[]; error?: string } {
       return { ...result, fixed: result.success ? [...REQUIRED_HOOK_EVENTS] : [] };
     }
 
-    const settingsJson = JSON.parse(readFileSync(claudeSettingsPath, "utf8"));
+    const parsed = JSON.parse(readFileSync(claudeSettingsPath, "utf8"));
+    if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+      return { success: false, fixed: [], error: "settings.json 格式错误：期望对象" };
+    }
+    const settingsJson = parsed as Record<string, unknown>;
     copyFileSync(claudeSettingsPath, backupPath);
 
     const command = getHookCommand();
     const hookEntry = { matcher: "*", hooks: [{ type: "command", command }] };
     const fixed: string[] = [];
 
-    settingsJson.hooks = settingsJson.hooks ?? {};
+    const hooks = (settingsJson.hooks ?? {}) as Record<string, unknown[]>;
+    settingsJson.hooks = hooks;
     for (const eventName of REQUIRED_HOOK_EVENTS) {
-      const entries = (settingsJson.hooks as Record<string, unknown[]>)[eventName];
+      const entries = hooks[eventName];
       const needsFix = !entries || !Array.isArray(entries) || entries.length === 0 ||
         (entries[0] as any)?.hooks?.[0]?.command !== command;
 
       if (needsFix) {
-        (settingsJson.hooks as Record<string, unknown[]>)[eventName] = [hookEntry];
+        hooks[eventName] = [hookEntry];
         fixed.push(eventName);
       }
     }
@@ -830,14 +849,19 @@ function removeHooks(): { success: boolean; error?: string } {
   try {
     if (!existsSync(claudeSettingsPath)) return { success: true };
 
-    const settingsJson = JSON.parse(readFileSync(claudeSettingsPath, "utf8"));
+    const parsed = JSON.parse(readFileSync(claudeSettingsPath, "utf8"));
+    if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+      return { success: false, error: "settings.json 格式错误：期望对象" };
+    }
+    const settingsJson = parsed as Record<string, unknown>;
     copyFileSync(claudeSettingsPath, backupPath);
 
-    if (settingsJson.hooks) {
+    if (settingsJson.hooks && typeof settingsJson.hooks === "object") {
+      const hooks = settingsJson.hooks as Record<string, unknown>;
       for (const eventName of REQUIRED_HOOK_EVENTS) {
-        delete settingsJson.hooks[eventName];
+        delete hooks[eventName];
       }
-      if (Object.keys(settingsJson.hooks).length === 0) {
+      if (Object.keys(hooks).length === 0) {
         delete settingsJson.hooks;
       }
     }
@@ -989,7 +1013,11 @@ ipcMain.handle("settings:import-file", async () => {
   if (!result.canceled && result.filePaths.length > 0) {
     try {
       const json = readFileSync(result.filePaths[0], "utf8");
-      const imported = JSON.parse(json) as Partial<CompanionSettings>;
+      const parsed = JSON.parse(json);
+      if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+        return { ok: false, error: "配置文件格式错误：期望 JSON 对象" };
+      }
+      const imported = parsed as Partial<CompanionSettings>;
       saveSettings(imported);
       return { ok: true };
     } catch (e) {
@@ -1065,6 +1093,7 @@ if (!gotSingleInstanceLock) {
 
   app.on("before-quit", () => {
     appStats.totalRuntime = sessionStartRuntime + (Date.now() - appStartTime);
+    if (saveStatsDebounce) { clearTimeout(saveStatsDebounce); saveStatsDebounce = null; }
     saveStats();
     wsServer?.close();
     eventServer?.close();
