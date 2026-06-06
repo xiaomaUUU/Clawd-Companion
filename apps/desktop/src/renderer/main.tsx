@@ -1316,15 +1316,14 @@ function SettingsApp() {
           <button className="close" title="关闭配置" onClick={() => window.companion.closeSettings()}>×</button>
         </div>
       </section>
-      <aside className="rail">
-        <div className="mark"><Sparkles size={26} /></div>
-        <button className={`rail-button ${activeSection === "general" ? "active" : ""}`} title="总览" onClick={() => jumpTo("general")}><Gauge size={20} /></button>
-        <button className={`rail-button ${activeSection === "connect" ? "active" : ""}`} title="连接" onClick={() => jumpTo("connect")}><PlugZap size={20} /></button>
-        <button className={`rail-button ${activeSection === "appearance" ? "active" : ""}`} title="外观" onClick={() => jumpTo("appearance")}><Bot size={20} /></button>
-        <button className={`rail-button ${activeSection === "behavior" ? "active" : ""}`} title="行为" onClick={() => jumpTo("behavior")}><MousePointer2 size={20} /></button>
-        <button className={`rail-button ${activeSection === "animation" ? "active" : ""}`} title="动画" onClick={() => jumpTo("animation")}><Wand2 size={20} /></button>
-        <button className={`rail-button ${activeSection === "data" ? "active" : ""}`} title="数据" onClick={() => jumpTo("data")}><FileText size={20} /></button>
-      </aside>
+      <nav className="tab-bar">
+        <button className={`tab-item ${activeSection === "general" ? "active" : ""}`} onClick={() => jumpTo("general")}><Gauge size={16} /> 总览</button>
+        <button className={`tab-item ${activeSection === "connect" ? "active" : ""}`} onClick={() => jumpTo("connect")}><PlugZap size={16} /> 连接</button>
+        <button className={`tab-item ${activeSection === "appearance" ? "active" : ""}`} onClick={() => jumpTo("appearance")}><Bot size={16} /> 外观</button>
+        <button className={`tab-item ${activeSection === "behavior" ? "active" : ""}`} onClick={() => jumpTo("behavior")}><MousePointer2 size={16} /> 行为</button>
+        <button className={`tab-item ${activeSection === "animation" ? "active" : ""}`} onClick={() => jumpTo("animation")}><Wand2 size={16} /> 动画</button>
+        <button className={`tab-item ${activeSection === "data" ? "active" : ""}`} onClick={() => jumpTo("data")}><FileText size={16} /> 数据</button>
+      </nav>
 
       <div className="section-content">
         {activeSection === "general" && <>
