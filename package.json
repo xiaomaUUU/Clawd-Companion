@@ -1,8 +1,8 @@
 {
   "name": "clawd-companion",
-  "version": "1.4.3",
+  "version": "1.4.4",
   "private": true,
-  "description": "Clawd Companion - Claude Code 桌宠伴侣，实时显示工具调用和会话状态。",
+  "description": "Clawd Companion - Real-time Claude Code desktop companion showing tool calls and session status",
   "author": "Doulor",
   "type": "module",
   "scripts": {
@@ -52,29 +52,30 @@
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
-      "shortcutName": "Clawd Companion"
+      "shortcutName": "Clawd Companion",
+      "deleteAppDataOnUninstall": true
     }
   },
   "dependencies": {
-    "@vitejs/plugin-react": "latest",
+    "@vitejs/plugin-react": "^4.4.1",
     "electron-updater": "^6.8.3",
-    "lucide-react": "latest",
-    "react": "latest",
-    "react-dom": "latest",
-    "ws": "latest"
+    "lucide-react": "^0.479.0",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0",
+    "ws": "^8.18.1"
   },
   "devDependencies": {
-    "@types/node": "latest",
-    "@types/react": "latest",
-    "@types/react-dom": "latest",
-    "@types/ws": "latest",
-    "concurrently": "latest",
-    "cross-env": "latest",
-    "electron": "latest",
+    "@types/node": "^22.14.1",
+    "@types/react": "^19.1.2",
+    "@types/react-dom": "^19.1.2",
+    "@types/ws": "^8.18.1",
+    "concurrently": "^9.1.2",
+    "cross-env": "^7.0.3",
+    "electron": "^34.5.1",
     "electron-builder": "^26.0.0",
-    "typescript": "latest",
-    "vite": "latest",
+    "typescript": "^5.8.3",
+    "vite": "^6.3.2",
     "vitest": "^4.1.8",
-    "wait-on": "latest"
+    "wait-on": "^8.0.3"
   }
 }

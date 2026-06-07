@@ -25,10 +25,19 @@ import {
   X
 } from "lucide-react";
 import type { CompanionConnectionStatus, CompanionEvent, CompanionSettings, CompanionSession, FeedbackMode, IdleAnimConfig, PetState, PrivacyMode, PermissionRequest, ToolName, UpdateStatus } from "../shared/events";
-import { defaultSettings, stateFromEvent } from "../shared/events";
+import { defaultSettings, stateFromEvent, type EventHistoryEntry, type NotificationRule, type CustomPlugin, type MonitorPosition } from "../shared/events";
 import clawdImage from "./clawd.png";
 import "./clawd-sprites/sprites.css";
 import "./styles.css";
+import { I18nProvider, useI18n, detectLocale } from "./useI18n";
+import { ErrorBoundary } from "./components/ErrorBoundary";
+import { HistoryPanel } from "./components/HistoryPanel";
+import { SessionStatsDashboard } from "./components/SessionStatsDashboard";
+import { TimelinePanel } from "./components/TimelinePanel";
+import { PluginManagerPanel } from "./components/PluginManagerPanel";
+import { NotificationRulesPanel } from "./components/NotificationRulesPanel";
+import { GifRecorderPanel } from "./components/GifRecorderPanel";
+import { MonitorSettings } from "./components/MonitorSettings";
 
 const clawdGifName: Record<PetState, string> = {
   idle: "clawd_png_idle",
@@ -96,6 +105,18 @@ const stateFeedbackMode: Record<PetState, FeedbackMode> = {
 function getFeedbackMode(event: CompanionEvent): FeedbackMode {
   if (event.tool && event.tool !== "Unknown") return "ribbon";
   return stateFeedbackMode[stateFromEvent(event)] ?? "card";
+}
+
+function applyTheme(theme: CompanionSettings["theme"]) {
+  if (theme === "dark") {
+    document.documentElement.setAttribute("data-theme", "dark");
+    return;
+  }
+  if (theme === "system") {
+    document.documentElement.setAttribute("data-theme", window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
+    return;
+  }
+  document.documentElement.setAttribute("data-theme", "light");
 }
 
 const mappingRows: Array<{ source: string; tool?: string; state: PetState; title: string }> = [
@@ -448,6 +469,7 @@ function useCompanion() {
   async function updateSettings(next: Partial<CompanionSettings>) {
     const saved = await window.companion.saveSettings(next);
     setSettings(saved);
+    if (next.theme) applyTheme(next.theme);
   }
 
   async function respondToPermission(id: string, decision: "allow" | "deny") {
@@ -1178,6 +1200,7 @@ function StateProp({ state }: { state: PetState }) {
 }
 
 function SettingsApp() {
+  const { t, setLocale } = useI18n();
   const { settings, updateSettings, connection, events, petState, toolStreams } = useCompanion();
   const [copied, setCopied] = useState<string | null>(null);
   const [activeSection, setActiveSection] = useState("general");
@@ -1301,9 +1324,9 @@ function SettingsApp() {
           <Sparkles size={16} />Clawd Companion
           {(updateStatus.available || updateStatus.downloading || updateStatus.downloaded) && (
             <button className="update-hint-btn" onClick={() => {
-              const shell = document.querySelector('.settings-shell');
-              if (shell) {
-                shell.scrollTo({ top: shell.scrollHeight, behavior: 'smooth' });
+              const content = document.querySelector('.section-content');
+              if (content) {
+                content.scrollTo({ top: content.scrollHeight, behavior: 'smooth' });
               }
             }}>
               发现新版本
@@ -1386,20 +1409,6 @@ function SettingsApp() {
           </section>
 
           {connection.error ? <section className="connection-error"><Wrench size={18} />{connection.error}</section> : null}
-
-          <Panel title="最近事件" icon={<Bell size={18} />} wide>
-            <div className="event-list">
-              {events.length === 0 ? <div className="empty">还没有收到事件。先复制 hooks 配置，或点击测试事件看状态变化。</div> : events.map(event => (
-                <article key={event.id} className="event-row">
-                  <span>{new Date(event.timestamp).toLocaleTimeString()}</span>
-                  <strong>{event.title}</strong>
-                  <p>{event.message}</p>
-                  <small>{timeAgo(event.timestamp, now)}</small>
-                  <em>{stateCopy[stateFromEvent(event)].label}</em>
-                </article>
-              ))}
-            </div>
-          </Panel>
         </>}
 
         {activeSection === "connect" && <>
@@ -1436,6 +1445,12 @@ function SettingsApp() {
 
         {activeSection === "appearance" && <>
           <GroupCard icon={<Eye size={18} />} title="显示">
+            <section className="settings-group theme-settings-group">
+              <h3 className="panel-subtitle">界面主题</h3>
+              <ThemeSegmented value={settings.theme ?? "system"} onChange={theme => updateSettings({ theme })} />
+              <p className="note">选择日间、夜间，或跟随系统深浅色设置。</p>
+            </section>
+            <div className="panel-divider" />
             <Toggle label="启用桌宠" checked={settings.petEnabled} onChange={petEnabled => updateSettings({ petEnabled })} />
             <Toggle label="始终置顶" checked={settings.alwaysOnTop} onChange={alwaysOnTop => updateSettings({ alwaysOnTop })} />
             <Toggle label="完全点击穿透" checked={settings.clickThrough} onChange={clickThrough => updateSettings({ clickThrough })} />
@@ -1521,6 +1536,20 @@ function SettingsApp() {
         {activeSection === "data" && <>
           <GroupCard icon={<Gauge size={18} />} title="运行统计">
             {persistedStats ? <StatsPanel stats={persistedStats} /> : <p className="note">加载中...</p>}
+          </GroupCard>
+
+          <GroupCard icon={<Bell size={18} />} title="最近事件">
+            <div className="event-list data-event-list">
+              {events.length === 0 ? <div className="empty">还没有收到事件。先复制 hooks 配置，或点击测试事件看状态变化。</div> : events.map(event => (
+                <article key={event.id} className="event-row">
+                  <span>{new Date(event.timestamp).toLocaleTimeString()}</span>
+                  <strong>{event.title}</strong>
+                  <p>{event.message}</p>
+                  <small>{timeAgo(event.timestamp, now)}</small>
+                  <em>{stateCopy[stateFromEvent(event)].label}</em>
+                </article>
+              ))}
+            </div>
           </GroupCard>
 
           <GroupCard icon={<Code2 size={18} />} title="Token 用量">
@@ -1808,6 +1837,15 @@ function Segmented({ value, onChange }: { value: PrivacyMode; onChange: (value: 
     { value: "safe", label: "安全" },
     { value: "standard", label: "标准" },
     { value: "detailed", label: "详细" }
+  ];
+  return <div className="segmented">{items.map(item => <button key={item.value} className={value === item.value ? "active" : ""} onClick={() => onChange(item.value)}>{item.label}</button>)}</div>;
+}
+
+function ThemeSegmented({ value, onChange }: { value: CompanionSettings["theme"]; onChange: (value: CompanionSettings["theme"]) => void }) {
+  const items: Array<{ value: CompanionSettings["theme"]; label: string }> = [
+    { value: "light", label: "日间" },
+    { value: "dark", label: "夜间" },
+    { value: "system", label: "跟随系统" }
   ];
   return <div className="segmented">{items.map(item => <button key={item.value} className={value === item.value ? "active" : ""} onClick={() => onChange(item.value)}>{item.label}</button>)}</div>;
 }
@@ -2397,7 +2435,56 @@ function SoundSettingsPanel({ settings, updateSettings }: { settings: CompanionS
 
 function App() {
   const route = window.location.hash.replace("#/", "") || "settings";
-  return route === "pet" ? <PetApp /> : <SettingsApp />;
+  const localeRef = React.useRef<string | null>(null);
+  const [locale, setLocaleState] = React.useState(() => {
+    const saved = localStorage.getItem("clawd-locale");
+    return saved === "en" || saved === "zh" ? saved : detectLocale();
+  });
+
+  React.useEffect(() => {
+    const init = async () => {
+      try {
+        const settings = await window.companion.getSettings();
+        const lang = settings.language || localeRef.current || "zh";
+        if (lang === "en" || lang === "zh") {
+          setLocaleState(lang);
+          localStorage.setItem("clawd-locale", lang);
+        }
+      } catch {}
+    };
+    init();
+  }, []);
+
+  React.useEffect(() => {
+    document.documentElement.setAttribute("data-theme", "light");
+    let themeMode: CompanionSettings["theme"] = "system";
+    const media = window.matchMedia("(prefers-color-scheme: dark)");
+    const onSystemThemeChange = () => {
+      if (themeMode === "system") applyTheme("system");
+    };
+
+    const initTheme = async () => {
+      try {
+        const settings = await window.companion.getSettings();
+        themeMode = settings.theme || "system";
+        applyTheme(themeMode);
+      } catch {}
+    };
+
+    media.addEventListener("change", onSystemThemeChange);
+    initTheme();
+    return () => media.removeEventListener("change", onSystemThemeChange);
+  }, []);
+
+  return route === "pet" ? <PetApp /> : (
+    <I18nProvider initialLocale={locale}>
+      <SettingsApp />
+    </I18nProvider>
+  );
 }
 
-createRoot(document.getElementById("root")!).render(<App />);
+createRoot(document.getElementById("root")!).render(
+  <ErrorBoundary>
+    <App />
+  </ErrorBoundary>
+);

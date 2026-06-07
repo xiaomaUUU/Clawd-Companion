@@ -54,22 +54,29 @@ contextBridge.exposeInMainWorld("companion", {
   respondPermission: (response: PermissionResponse) =>
     ipcRenderer.invoke("permission:respond", response) as Promise<{ success: boolean }>,
   checkForUpdates: () => ipcRenderer.invoke("update:check") as Promise<{ ok: boolean; error?: string }>,
-  installUpdate: () => ipcRenderer.invoke("update:install"),
+  installUpdate: () => ipcRenderer.invoke("update:install") as Promise<{ ok: boolean; error?: string }>,
   getUpdateStatus: () => ipcRenderer.invoke("update:get-status") as Promise<UpdateStatus>,
   getAppVersion: () => ipcRenderer.invoke("app:get-version") as Promise<string>,
   getTokenStats: (force?: boolean) => ipcRenderer.invoke("token-stats:get", force) as Promise<import("../shared/events.js").TokenStats>,
   previewSound: (name: "done" | "error" | "permission" | "session-start") => ipcRenderer.invoke("sound:preview", name) as Promise<{ ok: boolean; dataUrl?: string; error?: string }>,
   pickSoundFile: () => ipcRenderer.invoke("sound:pick-file") as Promise<string | null>,
-  triggerIdleBubble: () => ipcRenderer.invoke("test:idle-bubble"),
-  syncIdleBubble: (sprite: string | null) => ipcRenderer.invoke("idle-bubble:sync", sprite),
+  triggerIdleBubble: () => ipcRenderer.invoke("test:idle-bubble") as Promise<void>,
+  syncIdleBubble: (sprite: string | null) => ipcRenderer.invoke("idle-bubble:sync", sprite) as Promise<void>,
   onIdleBubbleSync: (callback: (sprite: string | null) => void) => {
     const handler = (_: Electron.IpcRendererEvent, sprite: string | null) => callback(sprite);
     ipcRenderer.on("companion:idle-bubble-sync", handler);
     return () => ipcRenderer.off("companion:idle-bubble-sync", handler);
   },
-  openExternal: (url: string) => ipcRenderer.invoke("open-external", url),
-  getStats: () => ipcRenderer.invoke("stats:get"),
-  resetStats: () => ipcRenderer.invoke("stats:reset"),
+  getEventHistory: () => ipcRenderer.invoke("events:get-history") as Promise<import("../shared/events.js").EventHistoryEntry[]>,
+  clearEventHistory: () => ipcRenderer.invoke("events:clear-history") as Promise<void>,
+  getMonitors: () => ipcRenderer.invoke("display:get-monitors") as Promise<Array<{id: string; bounds: {x: number; y: number; width: number; height: number}; name: string; isPrimary: boolean}>>,
+  recordGif: () => ipcRenderer.invoke("gif:record") as Promise<{ok: boolean; message?: string}>,
+  saveGif: (dataUrl: string) => ipcRenderer.invoke("gif:save", dataUrl) as Promise<{ok: boolean; error?: string}>,
+  getPlugins: () => ipcRenderer.invoke("plugins:get") as Promise<import("../shared/events.js").CustomPlugin[]>,
+  savePlugins: (plugins: import("../shared/events.js").CustomPlugin[]) => ipcRenderer.invoke("plugins:save", plugins) as Promise<import("../shared/events.js").CustomPlugin[]>,
+      openExternal: (url: string) => ipcRenderer.invoke("open-external", url) as Promise<void>,
+  getStats: () => ipcRenderer.invoke("stats:get") as Promise<import("../shared/events.js").AppStats>,
+  resetStats: () => ipcRenderer.invoke("stats:reset") as Promise<void>,
   exportSettingsFile: () => ipcRenderer.invoke("settings:export-file") as Promise<{ ok: boolean; error?: string }>,
   importSettingsFile: () => ipcRenderer.invoke("settings:import-file") as Promise<{ ok: boolean; error?: string }>,
   exportStatsFile: () => ipcRenderer.invoke("stats:export-file") as Promise<{ ok: boolean; error?: string }>,
@@ -126,6 +133,13 @@ declare global {
       onTriggerIdleBubble: (callback: () => void) => () => void;
       syncIdleBubble: (sprite: string | null) => Promise<void>;
       onIdleBubbleSync: (callback: (sprite: string | null) => void) => () => void;
+      getEventHistory: () => Promise<import("../shared/events.js").EventHistoryEntry[]>;
+      clearEventHistory: () => Promise<void>;
+      getMonitors: () => Promise<Array<{id: string; bounds: {x: number; y: number; width: number; height: number}; name: string; isPrimary: boolean}>>;
+      recordGif: () => Promise<{ok: boolean; message?: string}>;
+      saveGif: (dataUrl: string) => Promise<{ok: boolean; error?: string}>;
+      getPlugins: () => Promise<import("../shared/events.js").CustomPlugin[]>;
+      savePlugins: (plugins: import("../shared/events.js").CustomPlugin[]) => Promise<import("../shared/events.js").CustomPlugin[]>;
       openExternal: (url: string) => Promise<void>;
       getStats: () => Promise<import("../shared/events.js").AppStats>;
       resetStats: () => Promise<void>;

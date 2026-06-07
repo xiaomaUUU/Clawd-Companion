@@ -151,6 +151,14 @@ export interface CompanionSettings {
   openSettingsOnStart: boolean;
   autoStartWithCli: boolean;
   doneSound: boolean;
+  theme: "light" | "dark" | "system";
+  language: "zh" | "en";
+  autoStartDelay: number;
+  autoStartMinimized: boolean;
+  displayMonitorId: string;
+  monitorPositions: MonitorPosition[];
+  notificationRules: NotificationRule[];
+  customPlugins: CustomPlugin[];
   sound: SoundSettings;
   eventHistoryLimit: number;
   position?: { x: number; y: number };
@@ -260,6 +268,33 @@ export interface CompanionSession {
   eventCount: number;
 }
 
+export interface EventHistoryEntry {
+  id: string;
+  event: CompanionEvent;
+  timestamp: number;
+}
+
+export interface NotificationRule {
+  eventType: CompanionEventType;
+  enabled: boolean;
+  systemNotification: boolean;
+  playSound: boolean;
+  showBubble: boolean;
+}
+
+export interface CustomPlugin {
+  id: string;
+  name: string;
+  scriptPath: string;
+  enabled: boolean;
+  events: string[];
+}
+
+export interface MonitorPosition {
+  displayId: string;
+  position: { x: number; y: number };
+}
+
 export interface CompanionConnectionStatus {
   port: number;
   serverListening: boolean;
@@ -310,6 +345,14 @@ export const defaultSettings: CompanionSettings = {
   openSettingsOnStart: true,
   autoStartWithCli: false,
   doneSound: false,
+  theme: "system",
+  language: "zh",
+  autoStartDelay: 0,
+  autoStartMinimized: false,
+  displayMonitorId: "",
+  monitorPositions: [],
+  notificationRules: [],
+  customPlugins: [],
   sound: {
     enabled: true,
     volume: 0.5,
@@ -324,14 +367,14 @@ export const defaultSettings: CompanionSettings = {
   },
   eventHistoryLimit: 40,
   positionOffsets: {
-    clawd: { x: 707, y: -61 },
-    bubble: { x: 727, y: -41 },
-    ribbon: { x: 677, y: -80 },
-    permission: { x: 560, y: -20 },
-    companion: { x: 80, y: -120 },
-    companion0: { x: 80, y: -120 },
-    companion1: { x: 180, y: -200 },
-    companion2: { x: 280, y: -280 },
+    clawd: { x: 200, y: -50 },
+    bubble: { x: 220, y: -30 },
+    ribbon: { x: 170, y: -70 },
+    permission: { x: 150, y: -10 },
+    companion: { x: 40, y: -100 },
+    companion0: { x: 40, y: -100 },
+    companion1: { x: 100, y: -160 },
+    companion2: { x: 160, y: -220 },
     view: { x: 0, y: 0 }
   },
   zoneSizes: {},

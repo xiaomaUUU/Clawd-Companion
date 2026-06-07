@@ -46,6 +46,13 @@ declare global {
       onTriggerIdleBubble: (callback: () => void) => () => void;
       syncIdleBubble: (sprite: string | null) => Promise<void>;
       onIdleBubbleSync: (callback: (sprite: string | null) => void) => () => void;
+      getEventHistory: () => Promise<import("../shared/events").EventHistoryEntry[]>;
+      clearEventHistory: () => Promise<void>;
+      getMonitors: () => Promise<Array<{id: string; bounds: {x: number; y: number; width: number; height: number}; name: string; isPrimary: boolean}>>;
+      recordGif: () => Promise<{ok: boolean; message?: string}>;
+      saveGif: (dataUrl: string) => Promise<{ok: boolean; error?: string}>;
+      getPlugins: () => Promise<import("../shared/events").CustomPlugin[]>;
+      savePlugins: (plugins: import("../shared/events").CustomPlugin[]) => Promise<import("../shared/events").CustomPlugin[]>;
       openExternal: (url: string) => Promise<void>;
       getStats: () => Promise<import("../shared/events").AppStats>;
       resetStats: () => Promise<void>;

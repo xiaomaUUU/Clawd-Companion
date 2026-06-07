@@ -1,13 +1,13 @@
-import { app, BrowserWindow, Tray, Menu, ipcMain, nativeImage, Notification, screen, shell, dialog } from "electron";
+import { app, BrowserWindow, Tray, Menu, ipcMain, nativeImage, Notification, screen, shell, dialog, globalShortcut } from "electron";
 import electronUpdater from "electron-updater";
 const { autoUpdater } = electronUpdater;
 import { createServer, IncomingMessage, ServerResponse } from "node:http";
 import { WebSocketServer } from "ws";
-import { appendFileSync, readFileSync, writeFileSync, existsSync, mkdirSync, copyFileSync, unlinkSync } from "node:fs";
+import { appendFileSync, readFileSync, writeFileSync, existsSync, mkdirSync, copyFileSync, unlinkSync, readdirSync, statSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { homedir } from "node:os";
-import type { CompanionConnectionStatus, CompanionEvent, CompanionSettings, PermissionPollResult, PermissionResponse, UpdateStatus, AppStats, TokenStats } from "../shared/events.js";
+import type { CompanionConnectionStatus, CompanionEvent, CompanionSettings, PermissionPollResult, PermissionResponse, UpdateStatus, AppStats, TokenStats, EventHistoryEntry, NotificationRule, CustomPlugin } from "../shared/events.js";
 import { defaultSettings, defaultStats } from "../shared/events.js";
 import { scanTokenStats, setCachePath as setTokenCachePath } from "./token-stats.js";
 import { setGitEventHandler, startGitWatcher, stopGitWatcher } from "./git-watcher.js";
@@ -35,6 +35,7 @@ let wsServer: WebSocketServer | null = null;
 let serverListening = false;
 let serverError: string | undefined;
 let lastEvent: CompanionEvent | null = null;
+let eventHistory: EventHistoryEntry[] = [];
 let suppressPetMoveSave = false;
 let saveDebounce: ReturnType<typeof setTimeout> | null = null;
 let trackedPetPos = { x: 0, y: 0 };
@@ -62,11 +63,23 @@ function loadStats(): AppStats {
   try {
     const stored = JSON.parse(readFileSync(statsPath, "utf8")) as Partial<AppStats>;
     // 保存上次的累计运行时间，用于本次启动后累加
-    sessionStartRuntime = stored.totalRuntime ?? 0;
-    return { ...defaultStats, ...stored, hourlyActivity: stored.hourlyActivity ?? new Array(24).fill(0) };
+        sessionStartRuntime = stored.totalRuntime ?? 0;
+    const merged = { ...defaultStats, ...stored, hourlyActivity: stored.hourlyActivity ?? new Array(24).fill(0) };
+    return pruneOldStats(merged);
   } catch {
     return { ...defaultStats, firstStartTime: Date.now() };
   }
+}
+
+
+function pruneOldStats(stats: AppStats): AppStats {
+  const maxDays = 90;
+  const dates = Object.keys(stats.dailyStats).sort();
+  if (dates.length > maxDays) {
+    const toDelete = dates.slice(0, dates.length - maxDays);
+    for (const d of toDelete) delete stats.dailyStats[d];
+  }
+  return stats;
 }
 
 function saveStats() {
@@ -454,24 +467,23 @@ function setupAutoUpdater() {
     downloadedInstallerPath = (info as any).downloadedFile;
     logRuntime(`update-downloaded: info.downloadedFile = ${downloadedInstallerPath}`);
     if (!downloadedInstallerPath) {
-      const fs = require("node:fs") as typeof import("node:fs");
-      const path = require("node:path") as typeof import("node:path");
+      // fs and path are already imported at top
       // 尝试多个可能的缓存目录
       const possibleDirs = [
-        path.join(app.getPath("userData"), "..", "Cache", "Clawd Companion", "pending"),
-        path.join(app.getPath("userData"), "Cache", "pending"),
-        path.join(app.getPath("temp"), "Clawd Companion", "pending"),
-        path.join(app.getPath("appData"), "Cache", "Clawd Companion", "pending")
+        join(app.getPath("userData"), "..", "Cache", "Clawd Companion", "pending"),
+        join(app.getPath("userData"), "Cache", "pending"),
+        join(app.getPath("temp"), "Clawd Companion", "pending"),
+        join(app.getPath("appData"), "Cache", "Clawd Companion", "pending")
       ];
       for (const cacheDir of possibleDirs) {
         try {
           logRuntime(`update-downloaded: searching ${cacheDir}`);
-          const files = fs.readdirSync(cacheDir)
+          const files = readdirSync(cacheDir)
             .filter((f: string) => f.endsWith(".exe"))
-            .map((f: string) => ({ name: f, time: fs.statSync(path.join(cacheDir, f)).mtimeMs }))
+            .map((f: string) => ({ name: f, time: statSync(join(cacheDir, f)).mtimeMs }))
             .sort((a: any, b: any) => b.time - a.time);
           if (files.length > 0) {
-            downloadedInstallerPath = path.join(cacheDir, files[0].name);
+            downloadedInstallerPath = join(cacheDir, files[0].name);
             logRuntime(`update-downloaded: found ${downloadedInstallerPath}`);
             break;
           }
@@ -641,6 +653,9 @@ function startEventServer() {
       socket.destroy();
       return;
     }
+    const url = new URL(req.url, "http://localhost");
+    const tokenParam = url.searchParams.get("token") || "";
+    if (tokenParam !== settings.token) { socket.destroy(); return; }
     wsServer?.handleUpgrade(req, socket, head, ws => {
       ws.send(JSON.stringify({ type: "settings", payload: settings }));
       ws.send(JSON.stringify({ type: "connection", payload: getConnectionStatus() }));
@@ -674,6 +689,12 @@ function restartEventServer() {
 
 function emitEvent(event: CompanionEvent) {
   trackEvent(event);
+  // Event History
+  eventHistory.push({ id: event.id, event, timestamp: Date.now() });
+  const historyLimit = settings.eventHistoryLimit ?? 40;
+  if (eventHistory.length > historyLimit) {
+    eventHistory = eventHistory.slice(eventHistory.length - historyLimit);
+  }
   lastEvent = event;
   activeSessionId = event.sessionId ?? activeSessionId;
   activeClientType = event.clientType ?? activeClientType;
@@ -698,6 +719,13 @@ function emitEvent(event: CompanionEvent) {
   if (soundDataUrl) {
     petWindow?.webContents.send("companion:play-sound", soundDataUrl);
     settingsWindow?.webContents.send("companion:play-sound", soundDataUrl);
+    // Notification Rules
+    if (settings.notificationRules?.length) {
+      const rule = settings.notificationRules.find(r => r.eventType === event.event && r.enabled);
+      if (rule && rule.systemNotification && Notification.isSupported()) {
+        new Notification({ title: event.title, body: event.message }).show();
+      }
+    }
   }
 }
 
@@ -995,7 +1023,7 @@ ipcMain.handle("open-external", (_, url: string) => {
   shell.openExternal(url);
 });
 ipcMain.handle("settings:export-file", async () => {
-  const result = await require("electron").dialog.showSaveDialog({
+  const result = await dialog.showSaveDialog({
     defaultPath: "clawd-settings.json",
     filters: [{ name: "JSON", extensions: ["json"] }]
   });
@@ -1006,7 +1034,7 @@ ipcMain.handle("settings:export-file", async () => {
   return { ok: false };
 });
 ipcMain.handle("settings:import-file", async () => {
-  const result = await require("electron").dialog.showOpenDialog({
+  const result = await dialog.showOpenDialog({
     filters: [{ name: "JSON", extensions: ["json"] }],
     properties: ["openFile"]
   });
@@ -1027,7 +1055,7 @@ ipcMain.handle("settings:import-file", async () => {
   return { ok: false };
 });
 ipcMain.handle("stats:export-file", async () => {
-  const result = await require("electron").dialog.showSaveDialog({
+  const result = await dialog.showSaveDialog({
     defaultPath: "clawd-stats.json",
     filters: [{ name: "JSON", extensions: ["json"] }]
   });
@@ -1038,7 +1066,7 @@ ipcMain.handle("stats:export-file", async () => {
   return { ok: false };
 });
 ipcMain.handle("stats:import-file", async () => {
-  const result = await require("electron").dialog.showOpenDialog({
+  const result = await dialog.showOpenDialog({
     filters: [{ name: "JSON", extensions: ["json"] }],
     properties: ["openFile"]
   });
@@ -1052,6 +1080,43 @@ ipcMain.handle("stats:import-file", async () => {
     } catch (e) {
       return { ok: false, error: e instanceof Error ? e.message : String(e) };
     }
+  }
+  return { ok: false };
+});
+
+// Event History
+ipcMain.handle("events:get-history", () => eventHistory);
+ipcMain.handle("events:clear-history", () => { eventHistory = []; });
+
+// Display / Monitor
+ipcMain.handle("display:get-monitors", () => {
+  const displays = screen.getAllDisplays();
+  return displays.map(d => ({
+    id: String(d.id),
+    bounds: d.bounds,
+    name: `Monitor ${d.id} (${d.bounds.width}x${d.bounds.height})`,
+    isPrimary: d === screen.getPrimaryDisplay()
+  }));
+});
+
+// Plugins
+ipcMain.handle("plugins:get", () => settings.customPlugins ?? []);
+ipcMain.handle("plugins:save", (_, plugins: CustomPlugin[]) => {
+  saveSettings({ customPlugins: plugins });
+  return settings.customPlugins;
+});
+
+// GIF Recording (placeholder - actual recording happens in renderer)
+ipcMain.handle("gif:record", () => ({ ok: true, message: "Recording started in renderer" }));
+ipcMain.handle("gif:save", async (_, dataUrl: string) => {
+  const result = await dialog.showSaveDialog({
+    defaultPath: "clawd-animation.gif",
+    filters: [{ name: "GIF", extensions: ["gif"] }]
+  });
+  if (!result.canceled && result.filePath) {
+    const base64Data = dataUrl.replace(/^data:image\/gif;base64,/, "");
+    writeFileSync(result.filePath, Buffer.from(base64Data, "base64"));
+    return { ok: true };
   }
   return { ok: false };
 });
@@ -1080,10 +1145,15 @@ if (!gotSingleInstanceLock) {
     if (settings.openSettingsOnStart) createSettingsWindow();
     makeTrayIcon();
     startEventServer();
+    try {
+      globalShortcut.register("CommandOrControl+Alt+C", () => { createSettingsWindow(); });
+    } catch (e) {
+      logRuntime("Failed to register global shortcut: " + e);
+    }
     setupAutoUpdater();
     // 延迟 5 秒后检查更新，确保应用完全初始化
     setTimeout(() => {
-      autoUpdater.checkForUpdates().catch(() => {});
+      autoUpdater.checkForUpdates().catch(e => logRuntime("AutoUpdate check failed: " + e));
     }, 5000);
   });
 
@@ -1092,6 +1162,7 @@ if (!gotSingleInstanceLock) {
   });
 
   app.on("before-quit", () => {
+    globalShortcut.unregisterAll();
     appStats.totalRuntime = sessionStartRuntime + (Date.now() - appStartTime);
     if (saveStatsDebounce) { clearTimeout(saveStatsDebounce); saveStatsDebounce = null; }
     saveStats();
@@ -1105,3 +1176,4 @@ if (!gotSingleInstanceLock) {
     pendingPermissions.clear();
   });
 }
+
