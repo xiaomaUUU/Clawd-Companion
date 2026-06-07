@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
+import { flushSync } from "react-dom";
 import { createRoot } from "react-dom/client";
 import {
   Bell,
@@ -1206,6 +1207,7 @@ function SettingsApp() {
   const [activeSection, setActiveSection] = useState("general");
   const [now, setNow] = useState(Date.now());
   const [appVersion, setAppVersion] = useState("...");
+  const sectionContentRef = useRef<HTMLDivElement | null>(null);
 
   // Git 胶囊：在设置窗口也渲染一份（pet 窗口可能被遮挡）
   const [gitToast, setGitToast] = useState<{ id: string; title: string; message: string } | null>(null);
@@ -1268,7 +1270,27 @@ function SettingsApp() {
   }
 
   function jumpTo(section: string) {
+    if (section === activeSection) return;
+    const resetSectionScroll = () => {
+      sectionContentRef.current?.scrollTo({ top: 0, left: 0, behavior: "auto" });
+      requestAnimationFrame(() => sectionContentRef.current?.scrollTo({ top: 0, left: 0, behavior: "auto" }));
+    };
+
+    if (document.startViewTransition) {
+      try {
+        document.startViewTransition(() => {
+          flushSync(() => setActiveSection(section));
+          resetSectionScroll();
+        });
+        return;
+      } catch {
+        setActiveSection(section);
+        resetSectionScroll();
+        return;
+      }
+    }
     setActiveSection(section);
+    resetSectionScroll();
   }
 
   async function copy(text: string, key: string) {
@@ -1341,15 +1363,26 @@ function SettingsApp() {
       </section>
       <nav className="tab-bar">
         <div className="tab-mark"><Sparkles size={18} /></div>
-        <button className={`tab-item ${activeSection === "general" ? "active" : ""}`} onClick={() => jumpTo("general")}><Gauge size={16} /> 总览</button>
-        <button className={`tab-item ${activeSection === "connect" ? "active" : ""}`} onClick={() => jumpTo("connect")}><PlugZap size={16} /> 连接</button>
-        <button className={`tab-item ${activeSection === "appearance" ? "active" : ""}`} onClick={() => jumpTo("appearance")}><Bot size={16} /> 外观</button>
-        <button className={`tab-item ${activeSection === "behavior" ? "active" : ""}`} onClick={() => jumpTo("behavior")}><MousePointer2 size={16} /> 行为</button>
-        <button className={`tab-item ${activeSection === "animation" ? "active" : ""}`} onClick={() => jumpTo("animation")}><Wand2 size={16} /> 动画</button>
-        <button className={`tab-item ${activeSection === "data" ? "active" : ""}`} onClick={() => jumpTo("data")}><FileText size={16} /> 数据</button>
+        {[
+          { id: "general", icon: <Gauge size={16} />, label: "总览" },
+          { id: "connect", icon: <PlugZap size={16} />, label: "连接" },
+          { id: "appearance", icon: <Bot size={16} />, label: "外观" },
+          { id: "behavior", icon: <MousePointer2 size={16} />, label: "行为" },
+          { id: "animation", icon: <Wand2 size={16} />, label: "动画" },
+          { id: "data", icon: <FileText size={16} />, label: "数据" }
+        ].map(tab => (
+          <button
+            key={tab.id}
+            className={`tab-item ${activeSection === tab.id ? "active" : ""}`}
+            style={activeSection === tab.id ? ({ viewTransitionName: "active-tab" } as React.CSSProperties) : undefined}
+            onClick={() => jumpTo(tab.id)}
+          >
+            {tab.icon} {tab.label}
+          </button>
+        ))}
       </nav>
 
-      <div className="section-content">
+      <div className="section-content" ref={sectionContentRef}>
         {activeSection === "general" && <>
           <section className="hero-panel">
             <div>
@@ -1842,12 +1875,29 @@ function Segmented({ value, onChange }: { value: PrivacyMode; onChange: (value: 
 }
 
 function ThemeSegmented({ value, onChange }: { value: CompanionSettings["theme"]; onChange: (value: CompanionSettings["theme"]) => void }) {
-  const items: Array<{ value: CompanionSettings["theme"]; label: string }> = [
-    { value: "light", label: "日间" },
-    { value: "dark", label: "夜间" },
-    { value: "system", label: "跟随系统" }
+  const items: Array<{ value: CompanionSettings["theme"]; label: string; icon: string }> = [
+    { value: "light", label: "日间", icon: "☀" },
+    { value: "system", label: "跟随", icon: "◐" },
+    { value: "dark", label: "夜间", icon: "☾" }
   ];
-  return <div className="segmented">{items.map(item => <button key={item.value} className={value === item.value ? "active" : ""} onClick={() => onChange(item.value)}>{item.label}</button>)}</div>;
+  const activeIndex = Math.max(0, items.findIndex(item => item.value === value));
+
+  return (
+    <div className={`theme-switch theme-switch-${value}`} style={{ "--theme-index": activeIndex } as React.CSSProperties}>
+      <div className="theme-switch-liquid" />
+      {items.map(item => (
+        <button
+          key={item.value}
+          className={`theme-switch-option ${value === item.value ? "active" : ""}`}
+          onClick={() => onChange(item.value)}
+          type="button"
+        >
+          <span className="theme-switch-icon">{item.icon}</span>
+          <span>{item.label}</span>
+        </button>
+      ))}
+    </div>
+  );
 }
 
 function privacyLabel(mode: PrivacyMode) {
