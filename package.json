@@ -3,6 +3,7 @@
   "version": "1.5.2",
   "private": true,
   "description": "Clawd Companion - Real-time Claude Code desktop companion showing tool calls and session status",
+  "license": "MIT",
   "author": "Doulor",
   "type": "module",
   "scripts": {
@@ -14,6 +15,7 @@
     "pack": "npm run build && electron-builder --dir",
     "dist": "npm run build && electron-builder",
     "dist:validate": "node scripts/validate-dist.mjs",
+    "downloads": "node scripts/release-downloads.mjs",
     "lint": "node scripts/lint.mjs",
     "typecheck": "tsc -p tsconfig.node.json --noEmit && tsc -p tsconfig.preload.json --noEmit && tsc -p tsconfig.json --noEmit && tsc -p apps/hook-forwarder/tsconfig.json --noEmit",
     "version:patch": "node scripts/bump-version.mjs patch",

@@ -1,5 +1,9 @@
 # Clawd Companion
 
+![GitHub all releases](https://img.shields.io/github/downloads/Doulor/Clawd-Companion/total?label=downloads)
+![GitHub release](https://img.shields.io/github/v/release/Doulor/Clawd-Companion)
+![License](https://img.shields.io/github/license/Doulor/Clawd-Companion)
+
 Claude Code 桌宠伴侣 — 透明桌宠窗口实时显示 Claude Code 的工具调用、会话状态和完成提醒。
 
 基于 Claude Code 吉祥物 Clawd 的像素精灵动画，支持思维气泡、通知卡片和工具条三种反馈样式。
@@ -97,6 +101,9 @@ npm test
 npm run version:patch   # 递增 patch（1.4.2 → 1.4.3）
 npm run version:minor   # 递增 minor（1.4.2 → 1.5.0）
 npm run version:major   # 递增 major（1.4.2 → 2.0.0）
+
+# 统计 GitHub Release 下载量
+npm run downloads
 ```
 
 ## 持续集成
