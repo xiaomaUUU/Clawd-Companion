@@ -37,7 +37,7 @@ export function PluginManagerPanel({ settings, updateSettings }: { settings: any
       <div className="panel-header">
         <div>
           <h3 className="panel-title">{t("plugins.title", "Plugin Manager")}</h3>
-          <p className="note">{t("plugins.hint", "Plugins execute local Node.js scripts. Only enable plugins you trust; manifest permissions describe intended access, not a sandbox.")}</p>
+          <p className="note">{t("plugins.hint", "Plugins execute local Node.js scripts with access to your machine. Only trust plugins you fully understand; manifest permissions describe intended access, not a sandbox.")}</p>
         </div>
         <button className="ghost-btn" onClick={addPlugin}>{t("plugins.add", "Add Plugin")}</button>
       </div>
@@ -63,11 +63,17 @@ export function PluginManagerPanel({ settings, updateSettings }: { settings: any
                     Manifest: {p.manifest.name ?? p.name}{p.manifest.description ? ` — ${p.manifest.description}` : ""}
                   </div>
                 )}
+                {p.manifestError && (
+                  <div className="note" style={{ marginTop: 8, color: "var(--coral)" }}>
+                    {t("plugins.manifestError", "Manifest error")}: {p.manifestError}
+                  </div>
+                )}
 
                 <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginTop: 10, alignItems: "center" }}>
                   <Toggle label={t("plugins.trusted", "Trusted")} checked={p.trusted === true} onChange={trusted => updatePlugin(p.id, { trusted })} />
                   <Toggle label={t("plugins.enabled", "Enabled")} checked={p.enabled && p.trusted === true} onChange={enabled => updatePlugin(p.id, { enabled })} />
                   {!p.trusted && <span className="permission-risk high">{t("plugins.requiresTrust", "Requires trust before execution")}</span>}
+                  {p.trusted && <span className="permission-risk high">{t("plugins.trustWarning", "Trusted plugins run with local Node.js privileges")}</span>}
                 </div>
 
                 <div className="panel-divider" />

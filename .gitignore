@@ -4,6 +4,7 @@ node_modules/
 # Build output
 dist/
 release/
+tmp/
 
 # Unused animation assets
 apps/desktop/src/renderer/clawd-anims/

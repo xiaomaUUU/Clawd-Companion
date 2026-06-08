@@ -150,6 +150,7 @@ export interface CompanionSettings {
   launchAtLogin: boolean;
   openSettingsOnStart: boolean;
   autoStartWithCli: boolean;
+  autoUpdateEnabled: boolean;
   doneSound: boolean;
   notificationsEnabled: boolean;
   theme: "light" | "dark" | "system";
@@ -263,6 +264,7 @@ export interface UpdateStatus {
   downloading: boolean;
   progress?: number;
   error?: string;
+  lastCheckedAt?: number;
 }
 
 export interface CompanionSession {
@@ -321,6 +323,7 @@ export interface CustomPlugin {
   trusted?: boolean;
   permissions?: PluginPermission[];
   manifest?: PluginManifest;
+  manifestError?: string;
 }
 
 export interface PluginMarketItem {
@@ -375,6 +378,15 @@ export interface DoctorReport {
     exists: boolean;
     autoStartMarkerPath: string;
     autoStartMarkerExists: boolean;
+  };
+  update: UpdateStatus & {
+    autoUpdateEnabled: boolean;
+  };
+  plugins: {
+    total: number;
+    enabled: number;
+    trusted: number;
+    manifestErrors: number;
   };
   recent: {
     lastEventAt?: number;
@@ -435,8 +447,9 @@ export const defaultSettings: CompanionSettings = {
   companionIdleAnimations: ["thinking", "idle", "waiting_permission"],
   mainClawdIdleAnimation: "random",
   launchAtLogin: false,
-  openSettingsOnStart: true,
+  openSettingsOnStart: false,
   autoStartWithCli: false,
+  autoUpdateEnabled: true,
   doneSound: false,
   notificationsEnabled: true,
   theme: "system",

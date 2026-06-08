@@ -304,7 +304,8 @@
     "checkShort": "Checking...",
     "timeout": "Update check timed out. Check your network and try again.",
     "failed": "Update check failed. Please try again later.",
-    "installFailed": "Failed to start installer"
+    "installFailed": "Failed to start installer",
+    "lastChecked": "Last checked"
   },
   "notifications": {
     "title": "Notification rules",
@@ -327,9 +328,11 @@
     "add": "Add plugin",
     "remove": "Remove",
     "noPlugins": "No plugins",
-    "hint": "Plugins are local JS files executed on specific events.",
+    "hint": "Plugins run as local Node.js scripts with access to your machine. Only trust plugins you fully understand; manifest permissions describe intended access, not a sandbox.",
     "reload": "Reload plugins",
     "requiresTrust": "Requires trust before execution",
+    "trustWarning": "Trusted plugins run with local Node.js privileges",
+    "manifestError": "Manifest error",
     "permissions": "Permissions",
     "recentRuns": "Recent runs",
     "timedOut": "Timed out",
@@ -433,6 +436,7 @@
   "behavior": {
     "launchAtLogin": "Launch at login",
     "autoStartWithCli": "Auto-start with Claude Code",
+    "autoUpdate": "Check for updates on start",
     "openSettingsOnStart": "Open settings on start",
     "doneNotification": "System notification on done",
     "soundNote": "Completion sounds play audio files; system notifications appear in the notification center.",
@@ -539,6 +543,11 @@
     "needsRepair": "Needs repair",
     "fileMissing": "File missing",
     "autoStart": "Auto-start",
+    "autoUpdate": "Auto update",
+    "updateStatus": "Update status",
+    "plugins": "Plugins",
+    "enabledCount": "enabled",
+    "manifestErrors": "manifest errors",
     "enabled": "Enabled",
     "disabled": "Disabled",
     "recheck": "Recheck",

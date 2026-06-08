@@ -1,7 +1,9 @@
-import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
+import { existsSync, mkdirSync } from "node:fs";
+import { randomBytes } from "node:crypto";
 import { join } from "node:path";
 import type { CompanionSettings } from "../shared/events.js";
 import { defaultSettings } from "../shared/events.js";
+import { readJsonWithBackup, writeJsonAtomic } from "./atomic-json.js";
 
 const SETTINGS_VERSION = 1;
 
@@ -19,12 +21,14 @@ export function loadSettings(appDataDir: string): CompanionSettings {
   const settingsPath = getSettingsPath(appDataDir);
 
   if (!existsSync(settingsPath)) {
-    return { ...defaultSettings };
+    const created = withGeneratedToken({ ...defaultSettings });
+    saveSettings(appDataDir, created);
+    return created;
   }
 
   try {
-    const raw = readFileSync(settingsPath, "utf8");
-    const parsed = JSON.parse(raw);
+    const parsed = readJsonWithBackup<unknown>(settingsPath);
+    if (!parsed) throw new Error("settings_json_unreadable");
 
     // Check for versioned format
     if (parsed && typeof parsed === "object" && "version" in parsed) {
@@ -53,7 +57,7 @@ export function saveSettings(appDataDir: string, settings: CompanionSettings): v
     migratedAt: new Date().toISOString()
   };
 
-  writeFileSync(settingsPath, JSON.stringify(stored, null, 2));
+  writeJsonAtomic(settingsPath, stored, 2);
 }
 
 function migrateSettings(stored: StoredSettings, appDataDir: string): CompanionSettings {
@@ -69,6 +73,7 @@ function migrateSettings(stored: StoredSettings, appDataDir: string): CompanionS
   }
 
   const result = mergeWithDefaults(data);
+  if (result.token !== data.token) migrated = true;
 
   if (migrated) {
     const stored: StoredSettings = {
@@ -76,14 +81,14 @@ function migrateSettings(stored: StoredSettings, appDataDir: string): CompanionS
       data: result,
       migratedAt: new Date().toISOString()
     };
-    writeFileSync(getSettingsPath(appDataDir), JSON.stringify(stored, null, 2));
+    writeJsonAtomic(getSettingsPath(appDataDir), stored, 2);
   }
 
   return result;
 }
 
 function mergeWithDefaults(data: Partial<CompanionSettings>): CompanionSettings {
-  return {
+  return withGeneratedToken({
     ...defaultSettings,
     ...data,
     positionOffsets: { ...defaultSettings.positionOffsets, ...(data.positionOffsets ?? {}) },
@@ -91,7 +96,12 @@ function mergeWithDefaults(data: Partial<CompanionSettings>): CompanionSettings 
     sound: { ...defaultSettings.sound, ...(data.sound ?? {}) },
     idleAnim: data.idleAnim ? { ...defaultSettings.idleAnim, ...data.idleAnim } : defaultSettings.idleAnim,
     stateAnimations: { ...defaultSettings.stateAnimations, ...(data.stateAnimations ?? {}) }
-  };
+  });
+}
+
+function withGeneratedToken(settings: CompanionSettings): CompanionSettings {
+  if (settings.token && settings.token !== defaultSettings.token) return settings;
+  return { ...settings, token: randomBytes(24).toString("base64url") };
 }
 
 function ensureDir(dir: string): void {

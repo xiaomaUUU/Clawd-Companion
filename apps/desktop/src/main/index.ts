@@ -1,9 +1,7 @@
 import { app, BrowserWindow, Tray, Menu, ipcMain, nativeImage, Notification, screen, shell, dialog, globalShortcut, net } from "electron";
-import electronUpdater from "electron-updater";
-const { autoUpdater } = electronUpdater;
-import { createServer, IncomingMessage, ServerResponse } from "node:http";
+import { createServer } from "node:http";
 import { WebSocketServer } from "ws";
-import { appendFileSync, readFileSync, writeFileSync, existsSync, mkdirSync, copyFileSync, unlinkSync, readdirSync, statSync } from "node:fs";
+import { appendFileSync, copyFileSync, readFileSync, writeFileSync, existsSync, mkdirSync, unlinkSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { homedir } from "node:os";
@@ -17,6 +15,10 @@ import { loadSettings as loadManagedSettings, saveSettings as saveManagedSetting
 import { appendEventHistory, loadEventHistory, saveEventHistory, type EventHistoryStore } from "./event-history.js";
 import { appendPluginRun, canRunPlugin, normalizePlugin, runPlugin } from "./plugin-runner.js";
 import { installMarketPlugin, parseMarketIndex, rawUrl, safeMarketPath } from "./plugin-market.js";
+import { checkHooks as checkManagedHooks, installHooks as installManagedHooks, normalizeCommandPath, removeHooks as removeManagedHooks, repairHooks as repairManagedHooks } from "./hooks-manager.js";
+import { createAutoUpdaterController } from "./auto-updater.js";
+import { writeJsonAtomic } from "./atomic-json.js";
+import { bearerToken, isCompanionEvent, isPermissionRoute, isRoute, jsonBodyErrorStatus, parseJsonBody, parsePermissionRequestBody, streamToken, writeJson } from "./event-server.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const isDev = Boolean(process.env.VITE_DEV_SERVER_URL);
@@ -59,7 +61,6 @@ let updateStatus: UpdateStatus = {
   downloaded: false,
   downloading: false
 };
-let downloadedInstallerPath: string | undefined;
 let appStats: AppStats = { ...defaultStats };
 let appStartTime = Date.now();
 let sessionStartRuntime = 0; // 本次启动前已累计的运行时间
@@ -93,7 +94,41 @@ function pruneOldStats(stats: AppStats): AppStats {
 
 function saveStats() {
   ensureDataDir();
-  writeFileSync(statsPath, JSON.stringify(appStats, null, 2));
+  writeJsonAtomic(statsPath, appStats, 2);
+}
+
+function backupIfExists(path: string, suffix: string) {
+  if (existsSync(path)) copyFileSync(path, `${path}.${suffix}.bak`);
+}
+
+function isSettingsImport(value: unknown): value is Partial<CompanionSettings> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const candidate = value as Record<string, unknown>;
+  if (candidate.port !== undefined) {
+    if (typeof candidate.port !== "number" || !Number.isInteger(candidate.port) || candidate.port < 1024 || candidate.port > 65535) return false;
+  }
+  if (candidate.token !== undefined && (typeof candidate.token !== "string" || candidate.token.length < 8)) return false;
+  if (candidate.privacyMode !== undefined && !["safe", "standard", "detailed"].includes(String(candidate.privacyMode))) return false;
+  if (candidate.theme !== undefined && !["light", "dark", "system"].includes(String(candidate.theme))) return false;
+  if (candidate.language !== undefined && !["auto", "zh", "en"].includes(String(candidate.language))) return false;
+  return true;
+}
+
+function normalizeImportedStats(value: unknown): AppStats | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const imported = value as Partial<AppStats>;
+  return {
+    ...defaultStats,
+    ...imported,
+    toolUsage: isRecord(imported.toolUsage) ? imported.toolUsage as Record<string, number> : {},
+    eventTypeCounts: isRecord(imported.eventTypeCounts) ? imported.eventTypeCounts as Record<string, number> : {},
+    dailyStats: isRecord(imported.dailyStats) ? imported.dailyStats as AppStats["dailyStats"] : {},
+    hourlyActivity: Array.isArray(imported.hourlyActivity) && imported.hourlyActivity.length === 24 ? imported.hourlyActivity.map(value => Number(value) || 0) : new Array(24).fill(0)
+  };
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
 
 function trackEvent(event: CompanionEvent) {
@@ -168,8 +203,10 @@ function logRuntime(message: string) {
   appendFileSync(logPath, `[${new Date().toISOString()}] ${message}\n`);
 }
 
-const autoStartMarkerDir = join(homedir(), ".clawd-companion");
+const companionHomeDir = join(homedir(), ".clawd-companion");
+const autoStartMarkerDir = companionHomeDir;
 const autoStartMarkerPath = join(autoStartMarkerDir, "auto-start-with-cli.flag");
+const connectionConfigPath = join(companionHomeDir, "connection.json");
 
 function syncAutoStartMarker(enabled: boolean) {
   try {
@@ -179,6 +216,13 @@ function syncAutoStartMarker(enabled: boolean) {
     } else {
       if (existsSync(autoStartMarkerPath)) unlinkSync(autoStartMarkerPath);
     }
+  } catch { /* ignore */ }
+}
+
+function syncConnectionConfig() {
+  try {
+    if (!existsSync(companionHomeDir)) mkdirSync(companionHomeDir, { recursive: true });
+    writeJsonAtomic(connectionConfigPath, { port: settings.port, token: settings.token });
   } catch { /* ignore */ }
 }
 
@@ -193,6 +237,7 @@ function saveSettings(next: Partial<CompanionSettings>) {
   saveManagedSettings(appDataDir, settings);
   app.setLoginItemSettings({ openAtLogin: settings.launchAtLogin, path: process.execPath });
   syncAutoStartMarker(settings.autoStartWithCli);
+  syncConnectionConfig();
   if (petWindow && (settings.viewScale ?? settings.petScale) !== previousViewScale) {
     const size = petWindowSize();
     petWindow.setSize(size.width, size.height);
@@ -386,29 +431,6 @@ function refreshTrayMenu() {
   ]));
 }
 
-function parseJsonBody(req: IncomingMessage): Promise<unknown> {
-  return new Promise((resolve, reject) => {
-    let body = "";
-    req.on("data", chunk => {
-      body += chunk;
-      if (body.length > 1_000_000) req.destroy();
-    });
-    req.on("end", () => {
-      try {
-        resolve(body ? JSON.parse(body) : {});
-      } catch (error) {
-        reject(error);
-      }
-    });
-    req.on("error", reject);
-  });
-}
-
-function writeJson(res: ServerResponse, status: number, payload: unknown) {
-  res.writeHead(status, { "content-type": "application/json; charset=utf-8" });
-  res.end(JSON.stringify(payload));
-}
-
 function getConnectionStatus(): CompanionConnectionStatus {
   const connected = Boolean(serverListening && lastEvent && Date.now() - lastEvent.timestamp < 90_000);
   return {
@@ -441,126 +463,52 @@ function broadcastUpdateStatus() {
   settingsWindow?.webContents.send("companion:update-status", updateStatus);
 }
 
-function setupAutoUpdater() {
-  autoUpdater.autoDownload = true;
-  autoUpdater.autoInstallOnAppQuit = true;
-
-  // 设置 GitHub provider 配置
-  autoUpdater.setFeedURL({
-    provider: "github",
-    owner: "Doulor",
-    repo: "Clawd-Companion",
-    releaseType: "release"
-  });
-
-  autoUpdater.on("checking-for-update", () => {
-    logRuntime("autoUpdater: checking-for-update");
-    updateStatus = { ...updateStatus, checking: true, upToDate: false, error: undefined };
-    broadcastUpdateStatus();
-  });
-
-  autoUpdater.on("update-available", info => {
-    logRuntime(`autoUpdater: update-available v${info.version}`);
-    updateStatus = { ...updateStatus, checking: false, available: true, version: info.version };
-    broadcastUpdateStatus();
-  });
-
-  autoUpdater.on("update-not-available", () => {
-    logRuntime("autoUpdater: update-not-available");
-    updateStatus = { checking: false, available: false, upToDate: true, downloaded: false, downloading: false, version: undefined };
-    broadcastUpdateStatus();
-  });
-
-  autoUpdater.on("download-progress", progress => {
-    updateStatus = { ...updateStatus, downloading: true, progress: progress.percent };
-    broadcastUpdateStatus();
-  });
-
-  autoUpdater.on("update-downloaded", info => {
-    // 尝试从 info 获取路径，fallback 到缓存目录搜索
-    downloadedInstallerPath = (info as any).downloadedFile;
-    logRuntime(`update-downloaded: info.downloadedFile = ${downloadedInstallerPath}`);
-    if (!downloadedInstallerPath) {
-      // fs and path are already imported at top
-      // 尝试多个可能的缓存目录
-      const possibleDirs = [
-        join(app.getPath("userData"), "..", "Cache", "Clawd Companion", "pending"),
-        join(app.getPath("userData"), "Cache", "pending"),
-        join(app.getPath("temp"), "Clawd Companion", "pending"),
-        join(app.getPath("appData"), "Cache", "Clawd Companion", "pending")
-      ];
-      for (const cacheDir of possibleDirs) {
-        try {
-          logRuntime(`update-downloaded: searching ${cacheDir}`);
-          const files = readdirSync(cacheDir)
-            .filter((f: string) => f.endsWith(".exe"))
-            .map((f: string) => ({ name: f, time: statSync(join(cacheDir, f)).mtimeMs }))
-            .sort((a: any, b: any) => b.time - a.time);
-          if (files.length > 0) {
-            downloadedInstallerPath = join(cacheDir, files[0].name);
-            logRuntime(`update-downloaded: found ${downloadedInstallerPath}`);
-            break;
-          }
-        } catch (e) {
-          logRuntime(`update-downloaded: search failed for ${cacheDir}: ${e}`);
-        }
-      }
-    }
-    if (!downloadedInstallerPath) {
-      logRuntime("update-downloaded: FAILED to find installer path");
-    }
-    updateStatus = { checking: false, available: true, upToDate: false, downloading: false, downloaded: true, version: info.version, progress: 100 };
-    broadcastUpdateStatus();
-  });
-
-  autoUpdater.on("error", error => {
-    updateStatus = { ...updateStatus, checking: false, downloading: false, error: error.message };
-    broadcastUpdateStatus();
-    logRuntime(`autoUpdater error: ${error.message}`);
-  });
-}
-
-function isCompanionEvent(value: unknown): value is CompanionEvent {
-  if (!value || typeof value !== "object") return false;
-  const event = value as Record<string, unknown>;
-  return typeof event.id === "string" && typeof event.event === "string" && typeof event.title === "string" && typeof event.message === "string";
-}
+const autoUpdateController = createAutoUpdaterController({
+  app,
+  getStatus: () => updateStatus,
+  setStatus: status => { updateStatus = status; },
+  broadcastStatus: broadcastUpdateStatus,
+  log: logRuntime
+});
 
 function startEventServer() {
   serverListening = false;
   serverError = undefined;
   broadcastConnectionStatus();
   eventServer = createServer(async (req, res) => {
-    if (req.method === "GET" && req.url === "/health") {
+    if (isRoute(req, "GET", "/health")) {
       writeJson(res, 200, { ok: true, ...getConnectionStatus() });
       return;
     }
 
     // 权限请求端点
-    if (req.url?.startsWith("/permission")) {
-      const token = req.headers.authorization?.replace(/^Bearer\s+/i, "") ?? "";
+    if (isPermissionRoute(req.url)) {
+      const token = bearerToken(req);
       if (token !== settings.token) {
         writeJson(res, 401, { ok: false, error: "unauthorized" });
         return;
       }
 
       // POST /permission - 创建权限请求
-      if (req.method === "POST" && req.url === "/permission") {
+      if (isRoute(req, "POST", "/permission")) {
         try {
-          const body = await parseJsonBody(req);
+          const body = parsePermissionRequestBody(await parseJsonBody(req));
+          if (!body) {
+            writeJson(res, 400, { ok: false, error: "invalid_permission_request" });
+            return;
+          }
           const { randomUUID } = await import("node:crypto");
           const id = randomUUID();
 
           let resolve!: (result: PermissionPollResult) => void;
-          const promise = new Promise<PermissionPollResult>(r => { resolve = r; });
 
           const pending: PendingPermission = {
             id,
-            toolName: String((body as any).toolName ?? "Unknown"),
-            toolDetail: (body as any).toolDetail ? String((body as any).toolDetail) : undefined,
-            sessionId: (body as any).sessionId ? String((body as any).sessionId) : undefined,
+            toolName: body.toolName,
+            toolDetail: body.toolDetail,
+            sessionId: body.sessionId,
             timestamp: Date.now(),
-            rawPayload: (body as any).rawPayload ?? {},
+            rawPayload: body.rawPayload,
             status: "pending",
             resolve,
             timeout: setTimeout(() => {
@@ -596,15 +544,17 @@ function startEventServer() {
           });
 
           writeJson(res, 200, { id, status: "pending" });
-        } catch {
-          writeJson(res, 400, { ok: false, error: "bad_json" });
+        } catch (error) {
+          const bodyError = jsonBodyErrorStatus(error);
+          writeJson(res, bodyError.status, { ok: false, error: bodyError.error });
         }
         return;
       }
 
       // GET /permission/:id - 长轮询等待决策
-      if (req.method === "GET" && req.url.startsWith("/permission/")) {
-        const id = req.url.slice("/permission/".length);
+      const requestUrl = req.url ?? "";
+      if (req.method === "GET" && requestUrl.startsWith("/permission/")) {
+        const id = requestUrl.slice("/permission/".length);
         const pending = pendingPermissions.get(id);
 
         if (!pending) {
@@ -642,7 +592,7 @@ function startEventServer() {
       return;
     }
 
-    const token = req.headers.authorization?.replace(/^Bearer\s+/i, "") ?? "";
+    const token = bearerToken(req);
     if (token !== settings.token) {
       writeJson(res, 401, { ok: false, error: "unauthorized" });
       return;
@@ -656,8 +606,9 @@ function startEventServer() {
       }
       emitEvent(body);
       writeJson(res, 200, { ok: true });
-    } catch {
-      writeJson(res, 400, { ok: false, error: "bad_json" });
+    } catch (error) {
+      const bodyError = jsonBodyErrorStatus(error);
+      writeJson(res, bodyError.status, { ok: false, error: bodyError.error });
     }
   });
 
@@ -667,9 +618,7 @@ function startEventServer() {
       socket.destroy();
       return;
     }
-    const url = new URL(req.url, "http://localhost");
-    const tokenParam = url.searchParams.get("token") || "";
-    if (tokenParam !== settings.token) { socket.destroy(); return; }
+    if (streamToken(req.url) !== settings.token) { socket.destroy(); return; }
     wsServer?.handleUpgrade(req, socket, head, ws => {
       ws.send(JSON.stringify({ type: "settings", payload: settings }));
       ws.send(JSON.stringify({ type: "connection", payload: getConnectionStatus() }));
@@ -765,20 +714,6 @@ function broadcastSettings() {
 // Hooks 管理
 const claudeSettingsPath = join(homedir(), ".claude", "settings.json");
 const backupPath = join(homedir(), ".claude", "settings.clawd-backup.json");
-const REQUIRED_HOOK_EVENTS = ["SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse", "Notification", "Stop"] as const;
-
-interface HooksStatus {
-  installed: boolean;
-  configExists: boolean;
-  hookCount: number;
-  requiredCount: number;
-  missingEvents: string[];
-  commandMatches: boolean;
-}
-
-function normalizeCommandPath(pathLike: string): string {
-  return pathLike.replaceAll(String.fromCharCode(92), "/");
-}
 
 function getForwarderPath(): string {
   const devPath = normalizeCommandPath(join(__dirname, "../../dist/hook-forwarder/index.js"));
@@ -790,143 +725,20 @@ function getHookCommand(): string {
   return `node "${getForwarderPath()}"`;
 }
 
-function checkHooks(): HooksStatus {
-  if (!existsSync(claudeSettingsPath)) {
-    return { installed: false, configExists: false, hookCount: 0, requiredCount: 6, missingEvents: [...REQUIRED_HOOK_EVENTS], commandMatches: false };
-  }
-
-  let settingsJson: Record<string, unknown>;
-  try {
-    const parsed = JSON.parse(readFileSync(claudeSettingsPath, "utf8"));
-    if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
-      return { installed: false, configExists: true, hookCount: 0, requiredCount: 6, missingEvents: [...REQUIRED_HOOK_EVENTS], commandMatches: false };
-    }
-    settingsJson = parsed as Record<string, unknown>;
-  } catch {
-    return { installed: false, configExists: true, hookCount: 0, requiredCount: 6, missingEvents: [...REQUIRED_HOOK_EVENTS], commandMatches: false };
-  }
-  const hooks = (settingsJson.hooks ?? {}) as Record<string, unknown[]>;
-  const expectedCommand = getHookCommand();
-  const missing: string[] = [];
-  let commandOk = true;
-  let count = 0;
-
-  for (const eventName of REQUIRED_HOOK_EVENTS) {
-    const entries = hooks[eventName];
-    if (!entries || !Array.isArray(entries) || entries.length === 0) {
-      missing.push(eventName);
-    } else {
-      count++;
-      const hookCmd = (entries[0] as any)?.hooks?.[0]?.command;
-      if (hookCmd !== expectedCommand) commandOk = false;
-    }
-  }
-
-  return {
-    installed: missing.length === 0 && commandOk,
-    configExists: true,
-    hookCount: count,
-    requiredCount: 6,
-    missingEvents: missing,
-    commandMatches: commandOk
-  };
+function checkHooks() {
+  return checkManagedHooks(claudeSettingsPath, getHookCommand());
 }
 
-function installHooks(): { success: boolean; error?: string } {
-  try {
-    let settingsJson: Record<string, unknown> = {};
-    if (existsSync(claudeSettingsPath)) {
-      const parsed = JSON.parse(readFileSync(claudeSettingsPath, "utf8"));
-      if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
-        return { success: false, error: "settings.json 格式错误：期望对象" };
-      }
-      settingsJson = parsed as Record<string, unknown>;
-      copyFileSync(claudeSettingsPath, backupPath);
-    }
-
-    const command = getHookCommand();
-    const hookEntry = { matcher: "*", hooks: [{ type: "command", command }] };
-
-    const hooks = (settingsJson.hooks ?? {}) as Record<string, unknown[]>;
-    settingsJson.hooks = hooks;
-    for (const eventName of REQUIRED_HOOK_EVENTS) {
-      hooks[eventName] = [hookEntry];
-    }
-
-    const dir = join(homedir(), ".claude");
-    if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
-
-    writeFileSync(claudeSettingsPath, JSON.stringify(settingsJson, null, 2));
-    return { success: true };
-  } catch (error) {
-    return { success: false, error: error instanceof Error ? error.message : String(error) };
-  }
+function installHooks() {
+  return installManagedHooks(claudeSettingsPath, backupPath, getHookCommand());
 }
 
-function repairHooks(): { success: boolean; fixed: string[]; error?: string } {
-  try {
-    if (!existsSync(claudeSettingsPath)) {
-      const result = installHooks();
-      return { ...result, fixed: result.success ? [...REQUIRED_HOOK_EVENTS] : [] };
-    }
-
-    const parsed = JSON.parse(readFileSync(claudeSettingsPath, "utf8"));
-    if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
-      return { success: false, fixed: [], error: "settings.json 格式错误：期望对象" };
-    }
-    const settingsJson = parsed as Record<string, unknown>;
-    copyFileSync(claudeSettingsPath, backupPath);
-
-    const command = getHookCommand();
-    const hookEntry = { matcher: "*", hooks: [{ type: "command", command }] };
-    const fixed: string[] = [];
-
-    const hooks = (settingsJson.hooks ?? {}) as Record<string, unknown[]>;
-    settingsJson.hooks = hooks;
-    for (const eventName of REQUIRED_HOOK_EVENTS) {
-      const entries = hooks[eventName];
-      const needsFix = !entries || !Array.isArray(entries) || entries.length === 0 ||
-        (entries[0] as any)?.hooks?.[0]?.command !== command;
-
-      if (needsFix) {
-        hooks[eventName] = [hookEntry];
-        fixed.push(eventName);
-      }
-    }
-
-    writeFileSync(claudeSettingsPath, JSON.stringify(settingsJson, null, 2));
-    return { success: true, fixed };
-  } catch (error) {
-    return { success: false, fixed: [], error: error instanceof Error ? error.message : String(error) };
-  }
+function repairHooks() {
+  return repairManagedHooks(claudeSettingsPath, backupPath, getHookCommand());
 }
 
-function removeHooks(): { success: boolean; error?: string } {
-  try {
-    if (!existsSync(claudeSettingsPath)) return { success: true };
-
-    const parsed = JSON.parse(readFileSync(claudeSettingsPath, "utf8"));
-    if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
-      return { success: false, error: "settings.json 格式错误：期望对象" };
-    }
-    const settingsJson = parsed as Record<string, unknown>;
-    copyFileSync(claudeSettingsPath, backupPath);
-
-    if (settingsJson.hooks && typeof settingsJson.hooks === "object") {
-      const hooks = settingsJson.hooks as Record<string, unknown>;
-      for (const eventName of REQUIRED_HOOK_EVENTS) {
-        delete hooks[eventName];
-      }
-      if (Object.keys(hooks).length === 0) {
-        delete settingsJson.hooks;
-      }
-    }
-
-    writeFileSync(claudeSettingsPath, JSON.stringify(settingsJson, null, 2));
-    return { success: true };
-  } catch (error) {
-    return { success: false, error: error instanceof Error ? error.message : String(error) };
-  }
+function removeHooks() {
+  return removeManagedHooks(claudeSettingsPath, backupPath, getHookCommand());
 }
 
 ipcMain.handle("settings:get", () => settings);
@@ -939,6 +751,7 @@ ipcMain.handle("hooks:repair", () => repairHooks());
 ipcMain.handle("hooks:remove", () => removeHooks());
 ipcMain.handle("doctor:get-report", () => {
   const forwarderPath = getForwarderPath();
+  const plugins = (settings.customPlugins ?? []).map(normalizePlugin);
   return {
     generatedAt: Date.now(),
     appVersion: app.getVersion(),
@@ -949,6 +762,16 @@ ipcMain.handle("doctor:get-report", () => {
       exists: existsSync(forwarderPath),
       autoStartMarkerPath,
       autoStartMarkerExists: existsSync(autoStartMarkerPath)
+    },
+    update: {
+      ...updateStatus,
+      autoUpdateEnabled: settings.autoUpdateEnabled
+    },
+    plugins: {
+      total: plugins.length,
+      enabled: plugins.filter(plugin => plugin.enabled).length,
+      trusted: plugins.filter(plugin => plugin.trusted).length,
+      manifestErrors: plugins.filter(plugin => plugin.manifestError).length
     },
     recent: {
       lastEventAt: lastEvent?.timestamp,
@@ -1021,7 +844,7 @@ ipcMain.handle("update:check", async () => {
     return { ok: false, error: "开发模式下无法检查更新，请打包安装后使用自动更新功能。" };
   }
   try {
-    const result = await autoUpdater.checkForUpdates();
+    const result = await autoUpdateController.checkForUpdates();
     if (!result) {
       return { ok: false, error: "未找到更新信息，请确认 GitHub Release 已发布。" };
     }
@@ -1036,7 +859,7 @@ ipcMain.handle("update:install", () => {
   }
   // 使用 electron-updater 标准方式重启安装
   try {
-    autoUpdater.quitAndInstall();
+    autoUpdateController.quitAndInstall();
     return { ok: true };
   } catch (e) {
     logRuntime("update:install: quitAndInstall failed: " + e);
@@ -1078,7 +901,15 @@ ipcMain.handle("idle-bubble:sync", (_, sprite: string | null) => {
   settingsWindow?.webContents.send("companion:idle-bubble-sync", sprite);
 });
 ipcMain.handle("open-external", (_, url: string) => {
-  shell.openExternal(url);
+  try {
+    const parsed = new URL(url);
+    const allowedHosts = new Set(["github.com", "raw.githubusercontent.com"]);
+    if (parsed.protocol !== "https:" || !allowedHosts.has(parsed.hostname)) return { ok: false, error: "blocked_url" };
+    shell.openExternal(parsed.toString());
+    return { ok: true };
+  } catch {
+    return { ok: false, error: "invalid_url" };
+  }
 });
 ipcMain.handle("settings:export-file", async () => {
   const result = await dialog.showSaveDialog({
@@ -1100,11 +931,11 @@ ipcMain.handle("settings:import-file", async () => {
     try {
       const json = readFileSync(result.filePaths[0], "utf8");
       const parsed = JSON.parse(json);
-      if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
-        return { ok: false, error: "配置文件格式错误：期望 JSON 对象" };
+      if (!isSettingsImport(parsed)) {
+        return { ok: false, error: "配置文件格式错误：设置字段类型无效" };
       }
-      const imported = parsed as Partial<CompanionSettings>;
-      saveSettings(imported);
+      backupIfExists(settingsPath, "import");
+      saveSettings(parsed);
       return { ok: true };
     } catch (e) {
       return { ok: false, error: e instanceof Error ? e.message : String(e) };
@@ -1131,8 +962,10 @@ ipcMain.handle("stats:import-file", async () => {
   if (!result.canceled && result.filePaths.length > 0) {
     try {
       const json = readFileSync(result.filePaths[0], "utf8");
-      const imported = JSON.parse(json) as Partial<AppStats>;
-      appStats = { ...defaultStats, ...imported, hourlyActivity: imported.hourlyActivity ?? new Array(24).fill(0) };
+      const imported = normalizeImportedStats(JSON.parse(json));
+      if (!imported) return { ok: false, error: "统计文件格式错误：期望 JSON 对象" };
+      backupIfExists(statsPath, "import");
+      appStats = imported;
       saveStats();
       return { ok: true };
     } catch (e) {
@@ -1254,11 +1087,12 @@ if (!gotSingleInstanceLock) {
     } catch (e) {
       logRuntime("Failed to register global shortcut: " + e);
     }
-    setupAutoUpdater();
-    // 延迟 5 秒后检查更新，确保应用完全初始化
-    setTimeout(() => {
-      autoUpdater.checkForUpdates().catch(e => logRuntime("AutoUpdate check failed: " + e));
-    }, 5000);
+    autoUpdateController.setup();
+    if (settings.autoUpdateEnabled) {
+      setTimeout(() => {
+        autoUpdateController.checkForUpdates().catch(e => logRuntime("AutoUpdate check failed: " + e));
+      }, 5000);
+    }
   });
 
   app.on("window-all-closed", () => {

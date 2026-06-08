@@ -5,6 +5,8 @@ import type { CompanionEvent, CustomPlugin, PluginManifest, PluginRunRecord } fr
 
 const RUN_LIMIT = 50;
 const TIMEOUT_MS = 3000;
+const OUTPUT_LIMIT = 4000;
+const OUTPUT_BUFFER_LIMIT = 16_000;
 
 export function readPluginManifest(scriptPath: string): PluginManifest | null {
   const manifestPath = scriptPath.replace(/\.[cm]?js$/i, ".manifest.json");
@@ -31,8 +33,11 @@ export function normalizePlugin(plugin: CustomPlugin): CustomPlugin {
       permissions: plugin.permissions && plugin.permissions.length > 0 ? plugin.permissions : manifest.permissions,
       trusted: plugin.trusted === true
     });
-  } catch {
-    return withDefaults(plugin);
+  } catch (error) {
+    return withDefaults({
+      ...plugin,
+      manifestError: error instanceof Error ? error.message : String(error)
+    });
   }
 }
 
@@ -81,8 +86,8 @@ export function runPlugin(plugin: CustomPlugin, event: CompanionEvent, onRecord:
     child.kill();
   }, timeoutMs);
 
-  child.stdout.on("data", data => { stdout += String(data); });
-  child.stderr.on("data", data => { stderr += String(data); });
+  child.stdout.on("data", data => { stdout = appendOutput(stdout, String(data)); });
+  child.stderr.on("data", data => { stderr = appendOutput(stderr, String(data)); });
   child.on("error", err => {
     clearTimeout(timeout);
     onRecord(makeRecord(plugin, event, startedAt, null, false, stdout, stderr || err.message));
@@ -92,6 +97,11 @@ export function runPlugin(plugin: CustomPlugin, event: CompanionEvent, onRecord:
     onRecord(makeRecord(plugin, event, startedAt, code, timedOut, stdout, stderr));
   });
   child.stdin.end(JSON.stringify(event));
+}
+
+function appendOutput(current: string, chunk: string): string {
+  const next = current + chunk;
+  return next.length > OUTPUT_BUFFER_LIMIT ? next.slice(-OUTPUT_BUFFER_LIMIT) : next;
 }
 
 function makeRecord(
@@ -112,8 +122,8 @@ function makeRecord(
     durationMs: Date.now() - startedAt,
     exitCode,
     timedOut,
-    stdout: stdout.trim().slice(-4000),
-    stderr: stderr.trim().slice(-4000)
+    stdout: stdout.trim().slice(-OUTPUT_LIMIT),
+    stderr: stderr.trim().slice(-OUTPUT_LIMIT)
   };
 }
 

@@ -304,7 +304,8 @@
     "checkShort": "检查中...",
     "timeout": "检查超时，请检查网络连接后重试。",
     "failed": "检查更新失败，请稍后重试。",
-    "installFailed": "安装启动失败"
+    "installFailed": "安装启动失败",
+    "lastChecked": "上次检查"
   },
   "notifications": {
     "title": "通知规则",
@@ -327,9 +328,11 @@
     "add": "添加插件",
     "remove": "移除",
     "noPlugins": "暂无插件",
-    "hint": "插件是本地 JS 文件，在特定事件触发时执行。",
+    "hint": "插件会以本机 Node.js 脚本运行并访问你的电脑。只信任你完全理解的插件；manifest 权限只是意图说明，不是沙箱。",
     "reload": "重载插件",
     "requiresTrust": "需要信任后才会执行",
+    "trustWarning": "受信任插件会以本机 Node.js 权限运行",
+    "manifestError": "Manifest 错误",
     "permissions": "权限",
     "recentRuns": "最近运行",
     "timedOut": "已超时",
@@ -433,6 +436,7 @@
   "behavior": {
     "launchAtLogin": "开机自启",
     "autoStartWithCli": "Claude Code 启动时自动启动",
+    "autoUpdate": "启动时自动检查更新",
     "openSettingsOnStart": "启动时打开配置面板",
     "doneNotification": "完成时系统通知",
     "soundNote": "完成音效播放音频文件；系统通知在任务栏通知中心显示弹窗。",
@@ -539,6 +543,11 @@
     "needsRepair": "需要修复",
     "fileMissing": "文件不存在",
     "autoStart": "自动启动",
+    "autoUpdate": "自动更新",
+    "updateStatus": "更新状态",
+    "plugins": "插件",
+    "enabledCount": "已启用",
+    "manifestErrors": "manifest 错误",
     "enabled": "已开启",
     "disabled": "未开启",
     "recheck": "重新检查",

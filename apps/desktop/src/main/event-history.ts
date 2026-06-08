@@ -1,4 +1,5 @@
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync } from "node:fs";
+import { readJsonWithBackup, writeJsonAtomic } from "./atomic-json.js";
 import type { CompanionEvent, EventHistoryEntry, SessionHistory } from "../shared/events.js";
 
 export interface EventHistoryStore {
@@ -13,7 +14,8 @@ const DEFAULT_SESSION_EVENT_LIMIT = 250;
 export function loadEventHistory(path: string): EventHistoryStore {
   if (!existsSync(path)) return { events: [], sessions: [] };
   try {
-    const parsed = JSON.parse(readFileSync(path, "utf8")) as Partial<EventHistoryStore>;
+    const parsed = readJsonWithBackup<Partial<EventHistoryStore>>(path);
+    if (!parsed) return { events: [], sessions: [] };
     return {
       events: Array.isArray(parsed.events) ? parsed.events : [],
       sessions: Array.isArray(parsed.sessions) ? parsed.sessions : []
@@ -24,7 +26,7 @@ export function loadEventHistory(path: string): EventHistoryStore {
 }
 
 export function saveEventHistory(path: string, store: EventHistoryStore): void {
-  writeFileSync(path, JSON.stringify(store, null, 2));
+  writeJsonAtomic(path, store, 2);
 }
 
 export function appendEventHistory(

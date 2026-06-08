@@ -1,4 +1,5 @@
-import { readFileSync, writeFileSync, existsSync, readdirSync, statSync } from "node:fs";
+import { readFileSync, existsSync, readdirSync, statSync } from "node:fs";
+import { readJsonWithBackup, writeJsonAtomic } from "./atomic-json.js";
 import { join, dirname } from "node:path";
 import { homedir } from "node:os";
 import type { DailyTokenEntry, SessionTokenInfo, TokenStats } from "../shared/events.js";
@@ -40,7 +41,8 @@ function loadCache(): TokenStatsCacheFile {
   if (cache) return cache;
   if (cachePath && existsSync(cachePath)) {
     try {
-      const raw = JSON.parse(readFileSync(cachePath, "utf8")) as TokenStatsCacheFile;
+      const raw = readJsonWithBackup<TokenStatsCacheFile>(cachePath);
+      if (!raw) throw new Error("cache_json_unreadable");
       if (raw.version === 1 && raw.sessions) {
         cache = raw;
         return cache;
@@ -54,7 +56,7 @@ function loadCache(): TokenStatsCacheFile {
 function saveCache() {
   if (!cache || !cachePath) return;
   try {
-    writeFileSync(cachePath, JSON.stringify(cache));
+    writeJsonAtomic(cachePath, cache);
   } catch { /* best effort */ }
 }
 

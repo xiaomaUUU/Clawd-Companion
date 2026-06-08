@@ -10,7 +10,7 @@ interface HooksStatus {
   commandMatches: boolean;
 }
 
-contextBridge.exposeInMainWorld("companion", {
+const companionApi = {
   getSettings: () => ipcRenderer.invoke("settings:get") as Promise<CompanionSettings>,
   saveSettings: (settings: Partial<CompanionSettings>) => ipcRenderer.invoke("settings:save", settings) as Promise<CompanionSettings>,
   getConnectionStatus: () => ipcRenderer.invoke("connection:get") as Promise<CompanionConnectionStatus>,
@@ -26,17 +26,17 @@ contextBridge.exposeInMainWorld("companion", {
   onEvent: (callback: (event: CompanionEvent) => void) => {
     const handler = (_: Electron.IpcRendererEvent, event: CompanionEvent) => callback(event);
     ipcRenderer.on("companion:event", handler);
-    return () => ipcRenderer.off("companion:event", handler);
+    return () => { ipcRenderer.off("companion:event", handler); };
   },
   onSettings: (callback: (settings: CompanionSettings) => void) => {
     const handler = (_: Electron.IpcRendererEvent, settings: CompanionSettings) => callback(settings);
     ipcRenderer.on("companion:settings", handler);
-    return () => ipcRenderer.off("companion:settings", handler);
+    return () => { ipcRenderer.off("companion:settings", handler); };
   },
   onConnection: (callback: (status: CompanionConnectionStatus) => void) => {
     const handler = (_: Electron.IpcRendererEvent, status: CompanionConnectionStatus) => callback(status);
     ipcRenderer.on("companion:connection", handler);
-    return () => ipcRenderer.off("companion:connection", handler);
+    return () => { ipcRenderer.off("companion:connection", handler); };
   },
   setPetInteractive: (interactive: boolean) => ipcRenderer.invoke("window:pet-interactive", interactive) as Promise<void>,
   dragPetTo: (x: number, y: number) => ipcRenderer.invoke("window:drag-pet", { x, y }) as Promise<void>,
@@ -44,12 +44,12 @@ contextBridge.exposeInMainWorld("companion", {
   onPermissionRequest: (callback: (request: PermissionRequest) => void) => {
     const handler = (_: Electron.IpcRendererEvent, request: PermissionRequest) => callback(request);
     ipcRenderer.on("companion:permission-request", handler);
-    return () => ipcRenderer.off("companion:permission-request", handler);
+    return () => { ipcRenderer.off("companion:permission-request", handler); };
   },
   onPermissionResolved: (callback: (result: { id: string; status: string }) => void) => {
     const handler = (_: Electron.IpcRendererEvent, result: { id: string; status: string }) => callback(result);
     ipcRenderer.on("companion:permission-resolved", handler);
-    return () => ipcRenderer.off("companion:permission-resolved", handler);
+    return () => { ipcRenderer.off("companion:permission-resolved", handler); };
   },
   respondPermission: (response: PermissionResponse) =>
     ipcRenderer.invoke("permission:respond", response) as Promise<{ success: boolean }>,
@@ -67,7 +67,7 @@ contextBridge.exposeInMainWorld("companion", {
   onIdleBubbleSync: (callback: (sprite: string | null) => void) => {
     const handler = (_: Electron.IpcRendererEvent, sprite: string | null) => callback(sprite);
     ipcRenderer.on("companion:idle-bubble-sync", handler);
-    return () => ipcRenderer.off("companion:idle-bubble-sync", handler);
+    return () => { ipcRenderer.off("companion:idle-bubble-sync", handler); };
   },
   getEventHistory: () => ipcRenderer.invoke("events:get-history") as Promise<import("../shared/events.js").EventHistoryEntry[]>,
   getSessionHistory: () => ipcRenderer.invoke("sessions:get-history") as Promise<SessionHistory[]>,
@@ -79,7 +79,7 @@ contextBridge.exposeInMainWorld("companion", {
   getPluginMarket: () => ipcRenderer.invoke("plugins:market-get") as Promise<PluginMarketIndex>,
   installMarketPlugin: (pluginId: string) => ipcRenderer.invoke("plugins:market-install", pluginId) as Promise<{ ok: boolean; plugin?: import("../shared/events.js").CustomPlugin; error?: string }>,
   savePlugins: (plugins: import("../shared/events.js").CustomPlugin[]) => ipcRenderer.invoke("plugins:save", plugins) as Promise<import("../shared/events.js").CustomPlugin[]>,
-      openExternal: (url: string) => ipcRenderer.invoke("open-external", url) as Promise<void>,
+  openExternal: (url: string) => ipcRenderer.invoke("open-external", url) as Promise<{ ok: boolean; error?: string }>,
   getStats: () => ipcRenderer.invoke("stats:get") as Promise<import("../shared/events.js").AppStats>,
   resetStats: () => ipcRenderer.invoke("stats:reset") as Promise<void>,
   exportSettingsFile: () => ipcRenderer.invoke("settings:export-file") as Promise<{ ok: boolean; error?: string }>,
@@ -90,83 +90,31 @@ contextBridge.exposeInMainWorld("companion", {
   onTriggerIdleBubble: (callback: () => void) => {
     const handler = () => callback();
     ipcRenderer.on("companion:test-idle-bubble", handler);
-    return () => ipcRenderer.off("companion:test-idle-bubble", handler);
+    return () => { ipcRenderer.off("companion:test-idle-bubble", handler); };
   },
   onUpdateStatus: (callback: (status: UpdateStatus) => void) => {
     const handler = (_: Electron.IpcRendererEvent, status: UpdateStatus) => callback(status);
     ipcRenderer.on("companion:update-status", handler);
-    return () => ipcRenderer.off("companion:update-status", handler);
+    return () => { ipcRenderer.off("companion:update-status", handler); };
   },
   onPlaySound: (callback: (dataUrl: string) => void) => {
     const handler = (_: Electron.IpcRendererEvent, dataUrl: string) => callback(dataUrl);
     ipcRenderer.on("companion:play-sound", handler);
-    return () => ipcRenderer.off("companion:play-sound", handler);
+    return () => { ipcRenderer.off("companion:play-sound", handler); };
   },
   onOpenSection: (callback: (section: string) => void) => {
     const handler = (_: Electron.IpcRendererEvent, section: string) => callback(section);
     ipcRenderer.on("companion:open-section", handler);
-    return () => ipcRenderer.off("companion:open-section", handler);
+    return () => { ipcRenderer.off("companion:open-section", handler); };
   }
-});
+};
+
+export type CompanionApi = typeof companionApi;
+
+contextBridge.exposeInMainWorld("companion", companionApi);
 
 declare global {
   interface Window {
-    companion: {
-      getSettings: () => Promise<CompanionSettings>;
-      saveSettings: (settings: Partial<CompanionSettings>) => Promise<CompanionSettings>;
-      getConnectionStatus: () => Promise<CompanionConnectionStatus>;
-      sendTestEvent: (event: CompanionEvent) => Promise<void>;
-      checkHooks: () => Promise<HooksStatus>;
-      installHooks: () => Promise<{ success: boolean; error?: string }>;
-      repairHooks: () => Promise<{ success: boolean; fixed: string[]; error?: string }>;
-      removeHooks: () => Promise<{ success: boolean; error?: string }>;
-      openSettings: () => Promise<void>;
-      minimizeSettings: () => Promise<void>;
-      toggleMaximizeSettings: () => Promise<void>;
-      closeSettings: () => Promise<void>;
-      onEvent: (callback: (event: CompanionEvent) => void) => () => void;
-      onSettings: (callback: (settings: CompanionSettings) => void) => () => void;
-      onConnection: (callback: (status: CompanionConnectionStatus) => void) => () => void;
-      setPetInteractive: (interactive: boolean) => Promise<void>;
-      dragPetTo: (x: number, y: number) => Promise<void>;
-      movePetBy: (dx: number, dy: number) => Promise<void>;
-      onPermissionRequest: (callback: (request: PermissionRequest) => void) => () => void;
-      onPermissionResolved: (callback: (result: { id: string; status: string }) => void) => () => void;
-      respondPermission: (response: PermissionResponse) => Promise<{ success: boolean }>;
-      checkForUpdates: () => Promise<{ ok: boolean; error?: string }>;
-      installUpdate: () => Promise<{ ok: boolean; error?: string }>;
-      getUpdateStatus: () => Promise<UpdateStatus>;
-      getAppVersion: () => Promise<string>;
-      getTokenStats: (force?: boolean) => Promise<import("../shared/events.js").TokenStats>;
-      previewSound: (name: "done" | "error" | "permission" | "session-start") => Promise<{ ok: boolean; dataUrl?: string; error?: string }>;
-      getDefaultSoundPaths: () => Promise<Record<"done" | "error" | "permission" | "session-start", string>>;
-      previewSoundFile: (filePath: string) => Promise<{ ok: boolean; dataUrl?: string; error?: string }>;
-      pickSoundFile: () => Promise<string | null>;
-      triggerIdleBubble: () => Promise<void>;
-      onTriggerIdleBubble: (callback: () => void) => () => void;
-      syncIdleBubble: (sprite: string | null) => Promise<void>;
-      onIdleBubbleSync: (callback: (sprite: string | null) => void) => () => void;
-      getEventHistory: () => Promise<import("../shared/events.js").EventHistoryEntry[]>;
-      getSessionHistory: () => Promise<SessionHistory[]>;
-      clearEventHistory: () => Promise<void>;
-      exportEventHistoryFile: () => Promise<{ ok: boolean; error?: string }>;
-      getMonitors: () => Promise<Array<{id: string; bounds: {x: number; y: number; width: number; height: number}; name: string; isPrimary: boolean}>>;
-      getPlugins: () => Promise<import("../shared/events.js").CustomPlugin[]>;
-      getPluginRuns: () => Promise<PluginRunRecord[]>;
-      getPluginMarket: () => Promise<PluginMarketIndex>;
-      installMarketPlugin: (pluginId: string) => Promise<{ ok: boolean; plugin?: import("../shared/events.js").CustomPlugin; error?: string }>;
-      savePlugins: (plugins: import("../shared/events.js").CustomPlugin[]) => Promise<import("../shared/events.js").CustomPlugin[]>;
-      openExternal: (url: string) => Promise<void>;
-      getStats: () => Promise<import("../shared/events.js").AppStats>;
-      resetStats: () => Promise<void>;
-      exportSettingsFile: () => Promise<{ ok: boolean; error?: string }>;
-      importSettingsFile: () => Promise<{ ok: boolean; error?: string }>;
-      exportStatsFile: () => Promise<{ ok: boolean; error?: string }>;
-      importStatsFile: () => Promise<{ ok: boolean; error?: string }>;
-      getDoctorReport: () => Promise<DoctorReport>;
-      onUpdateStatus: (callback: (status: UpdateStatus) => void) => () => void;
-      onPlaySound: (callback: (dataUrl: string) => void) => () => void;
-      onOpenSection: (callback: (section: string) => void) => () => void;
-    };
+    companion: CompanionApi;
   }
 }

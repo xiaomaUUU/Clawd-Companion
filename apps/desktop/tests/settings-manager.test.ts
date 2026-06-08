@@ -28,8 +28,20 @@ describe("settings manager", () => {
     const loaded = loadSettings(dir);
     const stored = JSON.parse(readFileSync(join(dir, "settings.json"), "utf8"));
     expect(loaded.port).toBe(12345);
+    expect(loaded.autoUpdateEnabled).toBe(true);
     expect(stored.version).toBe(1);
     expect(stored.data.port).toBe(12345);
+    expect(stored.data.autoUpdateEnabled).toBe(true);
+  });
+
+  it("adds new default settings to versioned settings", () => {
+    const dir = tempDir();
+    writeFileSync(join(dir, "settings.json"), JSON.stringify({ version: 1, data: { port: 34567 } }));
+
+    const loaded = loadSettings(dir);
+
+    expect(loaded.port).toBe(34567);
+    expect(loaded.autoUpdateEnabled).toBe(true);
   });
 
   it("saves versioned settings", () => {

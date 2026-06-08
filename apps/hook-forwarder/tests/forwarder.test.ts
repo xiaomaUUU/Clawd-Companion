@@ -14,7 +14,8 @@ import {
   isPermissionEvent,
   findCompanionExecutable,
   isAutoStartEnabled,
-  autoStartMarkerPath
+  autoStartMarkerPath,
+  parseCliOptions
 } from "../src/index.js";
 
 vi.mock("node:fs", async () => {
@@ -23,6 +24,12 @@ vi.mock("node:fs", async () => {
     ...actual,
     existsSync: vi.fn(actual.existsSync)
   };
+});
+
+describe("parseCliOptions", () => {
+  it("parses port and token options", () => {
+    expect(parseCliOptions(["--port", "47635", "--token=secret"])).toEqual({ port: "47635", token: "secret" });
+  });
 });
 
 describe("hookName", () => {

@@ -6,6 +6,16 @@ function StatusPill({ ok, label }: { ok: boolean; label: string }) {
   return <span className={ok ? "doctor-pill ok" : "doctor-pill bad"}>{label}</span>;
 }
 
+function updateStatusText(report: DoctorReport): string {
+  if (report.update.error) return report.update.error;
+  if (report.update.downloaded) return `已下载 v${report.update.version ?? ""}`;
+  if (report.update.downloading) return `下载中 ${Math.round(report.update.progress ?? 0)}%`;
+  if (report.update.checking) return "检查中";
+  if (report.update.available) return `发现 v${report.update.version ?? ""}`;
+  if (report.update.upToDate) return "已是最新";
+  return report.update.autoUpdateEnabled ? "等待自动检查" : "自动检查已关闭";
+}
+
 export function DoctorPanel() {
   const { t } = useI18n();
   const [report, setReport] = useState<DoctorReport | null>(null);
@@ -25,7 +35,10 @@ export function DoctorPanel() {
     [t("doctor.hooks", "Hook 配置"), report.hooks.installed ? t("hooks.installed", "已安装") : `${t("doctor.missing", "缺少")} ${report.hooks.missingEvents.length} ${t("common.items", "项")}`, report.hooks.installed],
     [t("doctor.hookCommand", "Hook 命令"), report.hooks.commandMatches ? t("doctor.commandMatches", "匹配当前 forwarder") : t("doctor.needsRepair", "需要修复"), report.hooks.commandMatches],
     ["Forwarder", report.forwarder.exists ? report.forwarder.expectedPath : t("doctor.fileMissing", "文件不存在"), report.forwarder.exists],
-    [t("doctor.autoStart", "自动启动"), report.forwarder.autoStartMarkerExists ? t("doctor.enabled", "已开启") : t("doctor.disabled", "未开启"), true]
+    [t("doctor.autoStart", "自动启动"), report.forwarder.autoStartMarkerExists ? t("doctor.enabled", "已开启") : t("doctor.disabled", "未开启"), true],
+    [t("doctor.autoUpdate", "自动更新"), report.update.autoUpdateEnabled ? t("doctor.enabled", "已开启") : t("doctor.disabled", "未开启"), true],
+    [t("doctor.updateStatus", "更新状态"), updateStatusText(report), !report.update.error],
+    [t("doctor.plugins", "插件"), `${report.plugins.enabled}/${report.plugins.total} ${t("doctor.enabledCount", "已启用")}, ${report.plugins.manifestErrors} ${t("doctor.manifestErrors", "manifest 错误")}`, report.plugins.manifestErrors === 0]
   ] as const;
 
   return (

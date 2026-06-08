@@ -27,8 +27,38 @@ export interface CompanionEvent {
   timestamp: number;
 }
 
-const port = Number(process.env.CLAWD_COMPANION_PORT ?? "47634");
-const token = process.env.CLAWD_COMPANION_TOKEN ?? "clawd-local";
+interface ConnectionConfig {
+  port?: number;
+  token?: string;
+}
+
+export function parseCliOptions(args: string[]): { port?: string; token?: string } {
+  const options: { port?: string; token?: string } = {};
+  for (let index = 0; index < args.length; index++) {
+    const arg = args[index];
+    if (arg === "--port") options.port = args[++index];
+    else if (arg.startsWith("--port=")) options.port = arg.slice("--port=".length);
+    else if (arg === "--token") options.token = args[++index];
+    else if (arg.startsWith("--token=")) options.token = arg.slice("--token=".length);
+  }
+  return options;
+}
+
+export const connectionConfigPath = join(homedir(), ".clawd-companion", "connection.json");
+
+function readConnectionConfig(): ConnectionConfig {
+  try {
+    const parsed = JSON.parse(readFileSync(connectionConfigPath, "utf8")) as ConnectionConfig;
+    return parsed && typeof parsed === "object" ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+const cliOptions = parseCliOptions(process.argv.slice(2));
+const fileConfig = readConnectionConfig();
+const port = Number(cliOptions.port ?? process.env.CLAWD_COMPANION_PORT ?? fileConfig.port ?? "47634");
+const token = cliOptions.token ?? process.env.CLAWD_COMPANION_TOKEN ?? fileConfig.token ?? "clawd-local";
 const privacyMode = process.env.CLAWD_PRIVACY_MODE ?? "safe";
 const configuredClientType = clientType(process.env.CLAWD_CLIENT_TYPE);
 const configuredClientLabel = typeof process.env.CLAWD_CLIENT_LABEL === "string" && process.env.CLAWD_CLIENT_LABEL.trim() ? process.env.CLAWD_CLIENT_LABEL.trim() : labelForClient(configuredClientType);

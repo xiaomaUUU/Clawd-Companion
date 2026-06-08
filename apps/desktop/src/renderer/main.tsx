@@ -25,12 +25,13 @@ import {
   Wrench,
   X
 } from "lucide-react";
-import type { CompanionConnectionStatus, CompanionEvent, CompanionSettings, CompanionSession, FeedbackMode, IdleAnimConfig, PetState, PrivacyMode, PermissionRequest, ToolName, UpdateStatus } from "../shared/events";
+import type { CompanionEvent, CompanionSettings, CompanionSession, FeedbackMode, IdleAnimConfig, PetState, PrivacyMode, PermissionRequest, ToolName, UpdateStatus } from "../shared/events";
 import { defaultSettings, stateFromEvent, type EventHistoryEntry, type NotificationRule, type CustomPlugin, type MonitorPosition } from "../shared/events";
 import clawdImage from "./clawd.png";
 import "./clawd-sprites/sprites.css";
 import "./styles.css";
 import { I18nProvider, useI18n, detectLocale } from "./useI18n";
+import { useCompanion, type ToolStream } from "./useCompanion";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { HistoryPanel } from "./components/HistoryPanel";
 import { SessionStatsDashboard } from "./components/SessionStatsDashboard";
@@ -40,6 +41,7 @@ import { PluginMarketPanel } from "./components/PluginMarketPanel";
 import { NotificationRulesPanel } from "./components/NotificationRulesPanel";
 import { MonitorSettings } from "./components/MonitorSettings";
 import { DoctorPanel } from "./components/DoctorPanel";
+import { StatsPanel } from "./components/StatsPanel";
 
 const clawdGifName: Record<PetState, string> = {
   idle: "clawd_png_idle",
@@ -139,345 +141,8 @@ function makeEvent(event: CompanionEvent["event"], source: CompanionEvent["sourc
   };
 }
 
-interface ToolStream {
-  event: CompanionEvent;
-  exiting: boolean;
-  slot: number;
-  exitSlot?: number;
-}
-
-function useCompanion() {
-  const [settings, setSettings] = useState<CompanionSettings>(defaultSettings);
-  const [connection, setConnection] = useState<CompanionConnectionStatus>({
-    port: defaultSettings.port,
-    serverListening: false,
-    tokenSet: true,
-    privacyMode: defaultSettings.privacyMode,
-    connected: false
-  });
-  const [events, setEvents] = useState<CompanionEvent[]>([]);
-  const [currentEvent, setCurrentEvent] = useState<CompanionEvent | null>(null);
-  const [petState, setPetState] = useState<PetState>("idle");
-  const [toolStreams, setToolStreams] = useState<ToolStream[]>([]);
-  const [activePermissions, setActivePermissions] = useState<PermissionRequest[]>([]);
-  const [sessions, setSessions] = useState<CompanionSession[]>([]);
-  const [exitingSessions, setExitingSessions] = useState<Set<string>>(new Set());
-  const [mainSessionId, setMainSessionId] = useState<string | null>(null);
-  const sessionsRef = useRef<Map<string, CompanionSession>>(new Map());
-  const ribbonTimers = useRef<Map<string, number>>(new Map());
-  const ribbonTimestamps = useRef<Map<string, number>>(new Map());
-  const eventThrottleRef = useRef<{ timer: number | null; lastFlush: number }>({ timer: null, lastFlush: 0 });
-  const pendingEventsRef = useRef<CompanionEvent[]>([]);
-  const companionSlotRef = useRef<Map<string, number>>(new Map());
-
-  function scheduleStreamRemoval(eventId: string) {
-    window.setTimeout(() => {
-      setToolStreams(previous => previous.filter(s => s.event.id !== eventId));
-      ribbonTimers.current.delete(eventId);
-      ribbonTimestamps.current.delete(eventId);
-    }, 780);
-  }
-
-  function markExiting(eventId: string) {
-    setToolStreams(previous => {
-      const target = previous.find(s => s.event.id === eventId);
-      if (!target) return previous;
-      const exitSlot = target.slot;
-      return previous.map(s => {
-        if (s.event.id === eventId) return { ...s, exiting: true, exitSlot };
-        if (!s.exiting && s.slot > exitSlot) return { ...s, slot: s.slot - 1 };
-        return s;
-      });
-    });
-    scheduleStreamRemoval(eventId);
-  }
-
-  function removeSatellite(eventId: string) {
-    setToolStreams(previous => previous.filter(s => s.event.id !== eventId));
-    ribbonTimers.current.delete(eventId);
-    ribbonTimestamps.current.delete(eventId);
-  }
-
-  useEffect(() => {
-    void window.companion.getSettings().then(setSettings);
-    void window.companion.getConnectionStatus().then(setConnection);
-    const offSettings = window.companion.onSettings(setSettings);
-    const offConnection = window.companion.onConnection(setConnection);
-    const offEvent = window.companion.onEvent(event => {
-      // 多会话追踪
-      const sid = event.sessionId;
-      const isDone = event.event === "done" || event.event === "error";
-      if (sid) {
-        const existing = sessionsRef.current.get(sid);
-        // 第一个会话自动成为主 Clawd
-        if (!mainSessionId && sessionsRef.current.size === 0) {
-          setMainSessionId(sid);
-        }
-        let title = existing?.title ?? "";
-        // 标题提取逻辑：detail > title > message > clientLabel
-        const raw = event.detail || event.title || event.message || "";
-        const clean = raw.length > 25 ? raw.slice(0, 25) + "…" : raw;
-        if (!title && clean) {
-          title = clean;
-        }
-        // 每次 prompt_submit 都更新标题（用户输入是最具代表性的内容）
-        if (event.event === "prompt_submit") {
-          const prompt = event.detail || event.message || "";
-          if (prompt) {
-            title = prompt.length > 25 ? prompt.slice(0, 25) + "…" : prompt;
-          }
-        }
-        const wasActive = existing?.isActive ?? true;
-        const session: CompanionSession = {
-          sessionId: sid,
-          title: title || (existing?.title) || sid.slice(0, 6),
-          state: stateFromEvent(event),
-          lastEvent: event,
-          lastEventTime: Date.now(),
-          isActive: !isDone,
-          eventCount: (existing?.eventCount ?? 0) + 1
-        };
-        sessionsRef.current.set(sid, session);
-        setSessions(Array.from(sessionsRef.current.values()));
-        // 会话复活：之前处于退出状态但新事件使会话重新活跃，立即移出 exitingSessions
-        if (!wasActive && !isDone) {
-          setExitingSessions(prev => { const next = new Set(prev); next.delete(sid); return next; });
-        }
-        if (wasActive && isDone) {
-          setExitingSessions(prev => new Set(prev).add(sid));
-          const exitId = sid;
-          setTimeout(() => {
-            // 检查会话是否已被后续事件复活，如是则跳过清理
-            const revived = sessionsRef.current.get(exitId);
-            if (revived?.isActive) return;
-            setExitingSessions(prev => { const next = new Set(prev); next.delete(exitId); return next; });
-            sessionsRef.current.delete(exitId);
-            setSessions(Array.from(sessionsRef.current.values()));
-          }, 700);
-        }
-      } else if (isDone) {
-        // done 事件无 sessionId → 标记所有活跃会话为退出
-        for (const [id, s] of sessionsRef.current) {
-          if (s.isActive) {
-            sessionsRef.current.set(id, { ...s, isActive: false });
-            setExitingSessions(prev => new Set(prev).add(id));
-            const exitId = id;
-            setTimeout(() => {
-              const revived = sessionsRef.current.get(exitId);
-              if (revived?.isActive) return;
-              setExitingSessions(prev => { const next = new Set(prev); next.delete(exitId); return next; });
-              sessionsRef.current.delete(exitId);
-              setSessions(Array.from(sessionsRef.current.values()));
-            }, 700);
-          }
-        }
-        setSessions(Array.from(sessionsRef.current.values()));
-      }
-
-      // 单会话空闲检测：伴生会话超过 60 秒无事件则渐出消失，主会话不受影响
-      for (const [id, s] of sessionsRef.current) {
-        if (id !== mainSessionId && s.isActive && Date.now() - s.lastEventTime > 60_000 && !exitingSessions.has(id)) {
-          sessionsRef.current.set(id, { ...s, isActive: false });
-          setExitingSessions(prev => new Set(prev).add(id));
-          const exitId = id;
-          setTimeout(() => {
-            const revived = sessionsRef.current.get(exitId);
-            if (revived?.isActive) return;
-            setExitingSessions(prev => { const next = new Set(prev); next.delete(exitId); return next; });
-            sessionsRef.current.delete(exitId);
-            setSessions(Array.from(sessionsRef.current.values()));
-          }, 700);
-        }
-      }
-      setSessions(Array.from(sessionsRef.current.values()));
-      let silentCleanup = false;
-      for (const [id, s] of sessionsRef.current) {
-        if (Date.now() - s.lastEventTime > 300_000) {
-          sessionsRef.current.delete(id);
-          setExitingSessions(prev => { const next = new Set(prev); next.delete(id); return next; });
-          silentCleanup = true;
-        }
-      }
-      if (silentCleanup) {
-        setSessions(Array.from(sessionsRef.current.values()));
-      }
-
-      // 节流：100ms 内只刷新一次事件列表和 petState，减少高频事件时的渲染
-      // tool_end 不改变 petState —— 工具状态由 bubbleDuration 超时回退到 idle
-      const now = Date.now();
-      if (now - eventThrottleRef.current.lastFlush < 100) {
-        pendingEventsRef.current.push(event);
-        if (!eventThrottleRef.current.timer) {
-          eventThrottleRef.current.timer = window.setTimeout(() => {
-            const pending = pendingEventsRef.current;
-            pendingEventsRef.current = [];
-            eventThrottleRef.current.timer = null;
-            eventThrottleRef.current.lastFlush = Date.now();
-            setEvents(previous => [...pending.reverse(), ...previous].slice(0, settings.eventHistoryLimit));
-            // pending 已被 reverse()（最新在前）
-            // 优先取 tool_start（工具动画优先级最高），否则取最近的非 tool_end / git_operation 事件
-            const stateEvent = pending.find(e => e.event === "tool_start") ?? pending.find(e => e.event !== "tool_end" && e.event !== "git_operation");
-            if (stateEvent) {
-              setPetState(stateFromEvent(stateEvent));
-              setCurrentEvent(stateEvent);
-            }
-          }, 100 - (now - eventThrottleRef.current.lastFlush));
-        }
-      } else {
-        eventThrottleRef.current.lastFlush = now;
-        setEvents(previous => [event, ...previous].slice(0, settings.eventHistoryLimit));
-        // git_operation 只触发胶囊（git-toast listener），不切 Pet 状态 / 卡片
-        if (event.event !== "tool_end" && event.event !== "git_operation") {
-          setPetState(stateFromEvent(event));
-          setCurrentEvent(event);
-        }
-      }
-
-      // tool_end 处理：找到匹配的 tool_start 并标记退出
-      if (event.event === "tool_end") {
-        setToolStreams(previous => {
-          const matching = previous.find(
-            s => s.event.event === "tool_start" && s.event.tool === event.tool && !s.exiting
-          );
-          if (!matching) return previous;
-
-          const addedAt = ribbonTimestamps.current.get(matching.event.id) ?? Date.now();
-          const elapsed = Date.now() - addedAt;
-          const minDisplayMs = Math.max(300, settings.toolStreamMinDuration * 1000);
-
-          // 清除保底超时
-          const fallbackId = ribbonTimers.current.get(matching.event.id);
-          if (fallbackId) window.clearTimeout(fallbackId);
-          ribbonTimers.current.delete(matching.event.id);
-
-          if (elapsed >= minDisplayMs) {
-            // 已显示够久，立即标记退出
-            markExiting(matching.event.id);
-          } else {
-            // 还没到最少显示时间，延迟标记退出
-            const delay = minDisplayMs - elapsed;
-            const delayTimeout = window.setTimeout(() => {
-              markExiting(matching.event.id);
-            }, delay);
-            ribbonTimers.current.set(matching.event.id, delayTimeout);
-          }
-          return previous;
-        });
-        // tool_end 不改变 petState 和 currentEvent（由节流器统一处理）
-      }
-
-      // tool_start 处理：添加到工具流列表并设置保底超时
-      if (event.event === "tool_start") {
-        let overflowId: string | undefined;
-        setToolStreams(previous => {
-          const active = previous.filter(s => !s.exiting);
-          const overflow = active.length >= 5 ? active.at(-1) : undefined;
-          if (overflow) {
-            overflowId = overflow.event.id;
-            const fallbackId = ribbonTimers.current.get(overflow.event.id);
-            if (fallbackId) window.clearTimeout(fallbackId);
-            ribbonTimers.current.delete(overflow.event.id);
-          }
-          const next = previous.map(s => {
-            const exiting = overflow && s.event.id === overflow.event.id ? true : s.exiting;
-            return exiting ? { ...s, exiting } : { ...s, slot: Math.min(s.slot + 1, 4) };
-          });
-          return [{ event, exiting: false, slot: 0 }, ...next].slice(0, 8);
-        });
-        if (overflowId) scheduleStreamRemoval(overflowId);
-        ribbonTimestamps.current.set(event.id, Date.now());
-
-        // 设置保底超时：如果 tool_end 一直不来，最长显示 10 秒
-        const fallbackTimeout = window.setTimeout(() => {
-          markExiting(event.id);
-        }, 10_000);
-        ribbonTimers.current.set(event.id, fallbackTimeout);
-      }
-
-      // 状态回退定时器
-      const timeout = (event.event === "done" || event.event === "error" ? 5.2 : settings.bubbleDuration) * 1000;
-      window.setTimeout(() => {
-        setPetState(current => current === stateFromEvent(event) ? "idle" : current);
-        setCurrentEvent(current => current?.id === event.id ? null : current);
-      }, timeout);
-    });
-    const offPermissionRequest = window.companion.onPermissionRequest(request => {
-      setActivePermissions(prev => [...prev, request]);
-      setPetState("waiting_permission");
-    });
-
-    const offPermissionResolved = window.companion.onPermissionResolved(({ id }) => {
-      setActivePermissions(prev => prev.filter(p => p.id !== id));
-    });
-
-    return () => {
-      offSettings();
-      offConnection();
-      offEvent();
-      offPermissionRequest();
-      offPermissionResolved();
-      // 清理所有 ribbon 定时器
-      ribbonTimers.current.forEach(id => window.clearTimeout(id));
-      ribbonTimers.current.clear();
-      ribbonTimestamps.current.clear();
-    };
-  }, [settings.bubbleDuration, settings.eventHistoryLimit, settings.toolStreamMinDuration]);
-
-  // 维护 mainSessionId：主会话退出时仅在所有会话都消失后才置 null
-  // 不做自动升级（避免伴生 Clawd 无动画消失），伴生会话保持在自己的位置
-  useEffect(() => {
-    if (mainSessionId && !sessionsRef.current.has(mainSessionId)) {
-      if (sessionsRef.current.size === 0) {
-        setMainSessionId(null);
-      }
-    }
-  }, [sessions, exitingSessions, mainSessionId]);
-
-  // 维护伴生 Clawd 的稳定 slot 分配，避免会话退出时 index 重排导致位置/动画跳变
-  useEffect(() => {
-    const companionIds = sessions
-      .filter(s => s.sessionId !== mainSessionId && (s.isActive || exitingSessions.has(s.sessionId)))
-      .slice(0, 3)
-      .map(s => s.sessionId);
-    // 清理已不存在的会话的 slot
-    for (const [sid] of companionSlotRef.current) {
-      if (!companionIds.includes(sid)) {
-        companionSlotRef.current.delete(sid);
-      }
-    }
-    // 为新会话分配最小可用 slot
-    const usedSlots = new Set(companionSlotRef.current.values());
-    for (const sid of companionIds) {
-      if (!companionSlotRef.current.has(sid)) {
-        let slot = 0;
-        while (usedSlots.has(slot)) slot++;
-        companionSlotRef.current.set(sid, slot);
-        usedSlots.add(slot);
-      }
-    }
-  }, [sessions, exitingSessions, mainSessionId]);
-
-  async function updateSettings(next: Partial<CompanionSettings>) {
-    const saved = await window.companion.saveSettings(next);
-    setSettings(saved);
-    if (next.theme) applyTheme(next.theme);
-    if (next.uiStyle) applyUiStyle(next.uiStyle);
-  }
-
-  async function respondToPermission(id: string, decision: "allow" | "deny") {
-    await window.companion.respondPermission({
-      id,
-      decision,
-      reason: decision === "allow" ? "Approved via Clawd" : "Denied via Clawd"
-    });
-    setActivePermissions(prev => prev.filter(p => p.id !== id));
-  }
-
-  return { settings, updateSettings, connection, events, currentEvent, petState, toolStreams, activePermissions, sessions, exitingSessions, mainSessionId, companionSlotRef, respondToPermission };
-}
-
 function PetApp() {
-  const { settings, updateSettings, currentEvent, petState, toolStreams, activePermissions, sessions, exitingSessions, mainSessionId, companionSlotRef, connection, respondToPermission } = useCompanion();
+  const { settings, updateSettings, currentEvent, petState, toolStreams, activePermissions, sessions, exitingSessions, mainSessionId, companionSlotRef, connection, respondToPermission } = useCompanion({ keepEventList: false });
   const editMode = settings.editPosition;
   const dragging = useRef<string | null>(null);
   const dragStart = useRef<{ mx: number; my: number; ox: number; oy: number }>({ mx: 0, my: 0, ox: 0, oy: 0 });
@@ -1623,6 +1288,7 @@ function SettingsApp() {
           <GroupCard icon={<MousePointer2 size={18} />} title={t("sections.startup", "启动")}>
             <Toggle label={t("behavior.launchAtLogin", "开机自启")} checked={settings.launchAtLogin} onChange={launchAtLogin => updateSettings({ launchAtLogin })} />
             <Toggle label={t("behavior.autoStartWithCli", "Claude Code 启动时自动启动")} checked={settings.autoStartWithCli} onChange={autoStartWithCli => updateSettings({ autoStartWithCli })} />
+            <Toggle label={t("behavior.autoUpdate", "启动时自动检查更新")} checked={settings.autoUpdateEnabled} onChange={autoUpdateEnabled => updateSettings({ autoUpdateEnabled })} />
             <Toggle label={t("behavior.openSettingsOnStart", "启动时打开配置面板")} checked={settings.openSettingsOnStart} onChange={openSettingsOnStart => updateSettings({ openSettingsOnStart })} />
           </GroupCard>
 
@@ -1804,7 +1470,7 @@ function SettingsApp() {
             GitHub
           </button>
         </div>
-        <div className="version-right">
+        <div className="version-right" title={updateStatus.lastCheckedAt ? `${t("update.lastChecked", "上次检查")}: ${new Date(updateStatus.lastCheckedAt).toLocaleString()}` : undefined}>
           {updateStatus.error ? (
             <span className="update-error">{updateStatus.error}</span>
           ) : updateStatus.downloaded ? (
@@ -2376,93 +2042,6 @@ function RangeSlider({ label, min, max, step, low, high, format, onChange }: {
       </div>
       <b>{format(low)} — {format(high)}</b>
     </label>
-  );
-}
-
-function formatDuration(ms: number): string {
-  const s = Math.floor(ms / 1000);
-  const m = Math.floor(s / 60);
-  const h = Math.floor(m / 60);
-  if (h > 0) return `${h}h ${m % 60}m`;
-  if (m > 0) return `${m}m ${s % 60}s`;
-  return `${s}s`;
-}
-
-function StatsPanel({ stats }: { stats: any }) {
-  const { t } = useI18n();
-  const toolUsage = stats.toolUsage as Record<string, number>;
-  const sortedTools: Array<[string, number]> = Object.entries(toolUsage).sort((a, b) => b[1] - a[1]);
-  const topHours = stats.hourlyActivity ? [...stats.hourlyActivity.map((v: number, i: number) => ({ hour: i, count: v }))].sort((a: any, b: any) => b.count - a.count).slice(0, 3) : [];
-  const today = new Date().toISOString().slice(0, 10);
-  const todayStats = stats.dailyStats?.[today];
-  const totalToolCalls = Object.values(stats.toolUsage ?? {}).reduce((a: number, b: any) => a + b, 0) as number;
-  const days = Object.keys(stats.dailyStats ?? {}).length;
-  const avgDaily = days > 0 ? Math.round(totalToolCalls / days) : 0;
-  const permTotal = (stats.permissionApproved ?? 0) + (stats.permissionDenied ?? 0);
-  const permRate = permTotal > 0 ? Math.round((stats.permissionApproved / permTotal) * 100) : 0;
-
-  return (
-    <div className="stats-deep">
-      <div className="stats-grid">
-        <div className="stat-item"><span className="stat-value">{stats.totalSessions ?? 0}</span><span className="stat-label">{t("stats.totalSessions", "总会话数")}</span></div>
-        <div className="stat-item"><span className="stat-value">{totalToolCalls}</span><span className="stat-label">{t("stats.totalToolCalls", "总工具调用")}</span></div>
-        <div className="stat-item"><span className="stat-value">{stats.errorCount ?? 0}</span><span className="stat-label">{t("stats.errors", "错误次数")}</span></div>
-        <div className="stat-item"><span className="stat-value">{formatDuration(stats.totalRuntime ?? 0)}</span><span className="stat-label">{t("stats.totalRuntime", "累计运行")}</span></div>
-        <div className="stat-item"><span className="stat-value">{days}</span><span className="stat-label">{t("stats.activeDays", "活跃天数")}</span></div>
-        <div className="stat-item"><span className="stat-value">{avgDaily}</span><span className="stat-label">{t("stats.dailyAvg", "日均调用")}</span></div>
-      </div>
-      <div className="panel-divider" />
-      <h3 className="panel-subtitle">{t("stats.todayOverview", "今日概览")}</h3>
-      <div className="stats-grid">
-        <div className="stat-item"><span className="stat-value">{todayStats?.events ?? 0}</span><span className="stat-label">{t("stats.todayEvents", "事件")}</span></div>
-        <div className="stat-item"><span className="stat-value">{todayStats?.toolCalls ?? 0}</span><span className="stat-label">{t("stats.todayToolCalls", "工具调用")}</span></div>
-        <div className="stat-item"><span className="stat-value">{todayStats?.sessions ?? 0}</span><span className="stat-label">{t("stats.todaySessions", "会话")}</span></div>
-      </div>
-      {sortedTools.length > 0 && (
-        <>
-          <div className="panel-divider" />
-          <h3 className="panel-subtitle">{t("stats.toolRanking", "工具使用排行")}</h3>
-          <div className="tool-rank-list">
-            {sortedTools.map(([tool, count]: [string, any], i: number) => (
-              <div key={tool} className="tool-rank-row">
-                <span className="tool-rank-pos">{i + 1}</span>
-                <span className="tool-rank-name">{tool}</span>
-                <div className="tool-rank-bar">
-                  <div className="tool-rank-fill" style={{ width: `${(count / (sortedTools[0]?.[1] ?? 1)) * 100}%` }} />
-                </div>
-                <span className="tool-rank-count">{count}</span>
-              </div>
-            ))}
-          </div>
-        </>
-      )}
-      {permTotal > 0 && (
-        <>
-          <div className="panel-divider" />
-          <h3 className="panel-subtitle">{t("stats.permissionRequests", "权限请求")}</h3>
-          <div className="stats-grid">
-            <div className="stat-item"><span className="stat-value">{permTotal}</span><span className="stat-label">{t("stats.totalRequests", "总请求")}</span></div>
-            <div className="stat-item"><span className="stat-value" style={{ color: "var(--mint)" }}>{stats.permissionApproved ?? 0}</span><span className="stat-label">{t("stats.approved", "已批准")}</span></div>
-            <div className="stat-item"><span className="stat-value" style={{ color: "var(--coral)" }}>{stats.permissionDenied ?? 0}</span><span className="stat-label">{t("stats.denied", "已拒绝")}</span></div>
-            <div className="stat-item"><span className="stat-value">{permRate}%</span><span className="stat-label">{t("stats.approvalRate", "批准率")}</span></div>
-          </div>
-        </>
-      )}
-      {topHours.length > 0 && topHours.some((h: any) => h.count > 0) && (
-        <>
-          <div className="panel-divider" />
-          <h3 className="panel-subtitle">{t("stats.activeHours", "最活跃时段")}</h3>
-          <div className="stats-grid">
-            {topHours.filter((h: any) => h.count > 0).map((h: any) => (
-              <div key={h.hour} className="stat-item">
-                <span className="stat-value">{String(h.hour).padStart(2, "0")}:00</span>
-                <span className="stat-label">{h.count} {t("stats.times", "次")}</span>
-              </div>
-            ))}
-          </div>
-        </>
-      )}
-    </div>
   );
 }
 
