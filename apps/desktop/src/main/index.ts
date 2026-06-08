@@ -13,7 +13,7 @@ import { setGitEventHandler, startGitWatcher, stopGitWatcher } from "./git-watch
 import { builtInPath, fileToDataUrl, getSoundDataUrl, previewSoundDataUrl } from "./sound.js";
 import { loadSettings as loadManagedSettings, saveSettings as saveManagedSettings } from "./settingsManager.js";
 import { appendEventHistory, loadEventHistory, saveEventHistory, type EventHistoryStore } from "./event-history.js";
-import { appendPluginRun, canRunPlugin, normalizePlugin, runPlugin } from "./plugin-runner.js";
+import { appendPluginRun, canRunPlugin, normalizePlugin, resolvePluginAssets, runPlugin } from "./plugin-runner.js";
 import { installMarketPlugin, parseMarketIndex, rawUrl, safeMarketPath } from "./plugin-market.js";
 import { checkHooks as checkManagedHooks, installHooks as installManagedHooks, normalizeCommandPath, removeHooks as removeManagedHooks, repairHooks as repairManagedHooks } from "./hooks-manager.js";
 import { getProvider, type Provider } from "../shared/providers.js";
@@ -480,6 +480,13 @@ function startEventServer() {
       // POST /permission - 创建权限请求
       if (isRoute(req, "POST", "/permission")) {
         try {
+          // 权限弹窗关闭时自动允许，不弹卡片
+          if (!settings.permissionDialogEnabled) {
+            await parseJsonBody(req); // consume body
+            writeJson(res, 200, { id: "auto", status: "approved" });
+            return;
+          }
+
           const body = parsePermissionRequestBody(await parseJsonBody(req));
           if (!body) {
             writeJson(res, 400, { ok: false, error: "invalid_permission_request" });
@@ -991,6 +998,9 @@ async function fetchText(url: string): Promise<string> {
 }
 
 async function fetchMarketFile(path: string): Promise<string> {
+  if (!app.isPackaged) {
+    try { return readBundledMarketFile(path); } catch { /* fall through to remote */ }
+  }
   try {
     return await fetchText(path === "index.json" ? `${marketBaseUrl}/index.json` : rawUrl(marketBaseUrl, path));
   } catch (error) {
@@ -1004,7 +1014,11 @@ async function fetchMarketIndex(): Promise<PluginMarketIndex> {
   return parseMarketIndex(JSON.parse(text));
 }
 
-ipcMain.handle("plugins:get", () => (settings.customPlugins ?? []).map(normalizePlugin));
+ipcMain.handle("plugins:get", () => (settings.customPlugins ?? []).map(p => {
+  const normalized = normalizePlugin(p);
+  normalized.resolvedAssets = resolvePluginAssets(normalized);
+  return normalized;
+}));
 ipcMain.handle("plugins:get-runs", () => pluginRuns);
 ipcMain.handle("plugins:save", (_, plugins: CustomPlugin[]) => {
   saveSettings({ customPlugins: plugins.map(normalizePlugin) });
@@ -1017,7 +1031,15 @@ ipcMain.handle("plugins:market-install", async (_, pluginId: string) => {
   if (!item) return { ok: false, error: "Plugin not found in market" };
   const entry = await fetchMarketFile(item.entry);
   const manifest = await fetchMarketFile(item.manifest);
-  const installed = installMarketPlugin(localPluginDir, item, { entry, manifest });
+  const assets: Record<string, string> = {};
+  try {
+    const parsedManifest = JSON.parse(manifest);
+    if (parsedManifest.assets?.sprites) {
+      assets[parsedManifest.assets.sprites] = await fetchMarketFile(`plugins/${item.id}/${parsedManifest.assets.sprites}`);
+    }
+  } catch { /* ignore asset fetch errors */ }
+  const previous = (settings.customPlugins ?? []).find(plugin => plugin.id === `market-${item.id}`);
+  const installed = installMarketPlugin(localPluginDir, item, { entry, manifest, assets: Object.keys(assets).length > 0 ? assets : undefined }, previous);
   const next = [...(settings.customPlugins ?? []).filter(plugin => plugin.id !== installed.id), installed];
   saveSettings({ customPlugins: next });
   return { ok: true, plugin: installed };

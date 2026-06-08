@@ -1,0 +1,42 @@
+{
+  "name": "Webhook Notifier",
+  "nameZh": "Webhook 通知",
+  "description": "Sends Claude Code events to a webhook URL (Discord, Slack, or custom HTTP endpoint).",
+  "events": ["done", "error", "session_start"],
+  "permissions": ["network"],
+  "timeoutMs": 8000,
+  "settings": [
+    {
+      "key": "webhookUrl",
+      "label": "Webhook URL",
+      "type": "text",
+      "placeholder": "https://discord.com/api/webhooks/...",
+      "description": "Discord, Slack, or any HTTP endpoint that accepts POST JSON"
+    },
+    {
+      "key": "eventFilter",
+      "label": "Trigger events",
+      "type": "select",
+      "default": "done_error",
+      "options": [
+        { "label": "Done + Error only", "value": "done_error" },
+        { "label": "All events", "value": "all" },
+        { "label": "Errors only", "value": "error_only" }
+      ]
+    },
+    {
+      "key": "includeDetail",
+      "label": "Include event detail",
+      "type": "toggle",
+      "default": false
+    },
+    {
+      "key": "mentionOn",
+      "label": "Mention on error",
+      "type": "toggle",
+      "default": false
+    }
+  ],
+  "readme": "# Webhook Notifier\n\nSend important Clawd events to Discord, Slack, or your own HTTP endpoint.\n\n## When is this useful?\n\n- Let Claude Code work in the background and get notified when a task finishes.\n- Send errors to a team channel.\n- Trigger your own automation service from Clawd events.\n\n## Discord\n\n1. Open a Discord channel settings page.\n2. Create an Incoming Webhook.\n3. Copy the webhook URL.\n4. Paste it into **Webhook URL**.\n\nDiscord messages use embeds with event metadata.\n\n## Slack\n\n1. Create an Incoming Webhook in Slack.\n2. Copy the webhook URL.\n3. Paste it into **Webhook URL**.\n\nSlack messages use Block Kit formatting.\n\n## Custom endpoint\n\nAny HTTP endpoint that accepts `POST` JSON can be used.\n\n## Privacy\n\nOnly enable **Include event detail** if you are comfortable sending event details to the external service.",
+  "readmeZh": "# Webhook 通知\n\n把重要的 Clawd 事件发送到 Discord、Slack 或你自己的 HTTP 接口。\n\n## 什么时候有用？\n\n- 让 Claude Code 在后台工作，任务完成或出错时收到通知。\n- 把错误推送到团队频道。\n- 用 Clawd 事件触发你自己的自动化服务。\n\n## Discord\n\n1. 打开 Discord 频道设置。\n2. 创建 Incoming Webhook。\n3. 复制 webhook URL。\n4. 粘贴到 **Webhook URL**。\n\nDiscord 消息会使用 embed 格式展示事件信息。\n\n## Slack\n\n1. 在 Slack 创建 Incoming Webhook。\n2. 复制 webhook URL。\n3. 粘贴到 **Webhook URL**。\n\nSlack 消息会使用 Block Kit 格式。\n\n## 自定义接口\n\n任何能接收 `POST` JSON 的 HTTP 接口都可以使用。\n\n## 隐私提醒\n\n只有在你确定可以把事件详情发送到外部服务时，才开启 **Include event detail**。"
+}

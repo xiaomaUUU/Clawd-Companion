@@ -1,6 +1,6 @@
 import { existsSync, readFileSync } from "node:fs";
 import { spawn } from "node:child_process";
-import { dirname } from "node:path";
+import { dirname, join, normalize, resolve, sep } from "node:path";
 import type { CompanionEvent, CustomPlugin, PluginManifest, PluginRunRecord } from "../shared/events.js";
 
 const RUN_LIMIT = 50;
@@ -17,7 +17,12 @@ export function readPluginManifest(scriptPath: string): PluginManifest | null {
     description: typeof parsed.description === "string" ? parsed.description : undefined,
     events: Array.isArray(parsed.events) ? parsed.events.filter((v): v is string => typeof v === "string") : [],
     permissions: Array.isArray(parsed.permissions) ? parsed.permissions.filter(isPluginPermission) : [],
-    timeoutMs: typeof parsed.timeoutMs === "number" ? parsed.timeoutMs : undefined
+    timeoutMs: typeof parsed.timeoutMs === "number" ? parsed.timeoutMs : undefined,
+    settings: Array.isArray(parsed.settings) ? parsed.settings.filter(isValidSettingField) : undefined,
+    assets: parsed.assets && typeof parsed.assets === "object" ? { sprites: typeof parsed.assets.sprites === "string" ? parsed.assets.sprites : undefined } : undefined,
+    widgets: Array.isArray(parsed.widgets) ? parsed.widgets.filter(isValidWidgetDescriptor) : undefined,
+    readme: typeof parsed.readme === "string" ? parsed.readme : undefined,
+    readmeZh: typeof parsed.readmeZh === "string" ? parsed.readmeZh : undefined
   };
 }
 
@@ -54,6 +59,24 @@ function isPluginPermission(value: unknown): value is PluginManifest["permission
   return value === "event" || value === "network" || value === "filesystem" || value === "shell";
 }
 
+function isValidSettingField(value: unknown): value is NonNullable<PluginManifest["settings"]>[number] {
+  if (!value || typeof value !== "object") return false;
+  const raw = value as Record<string, unknown>;
+  return typeof raw.key === "string" && typeof raw.label === "string" && typeof raw.type === "string"
+    && ["text", "number", "toggle", "select", "color", "filepath"].includes(raw.type as string);
+}
+
+function isValidWidgetDescriptor(value: unknown): value is NonNullable<PluginManifest["widgets"]>[number] {
+  if (!value || typeof value !== "object") return false;
+  const raw = value as Record<string, unknown>;
+  if (raw.type !== "pomodoro") return false;
+  if (raw.positionKey !== undefined && (typeof raw.positionKey !== "string" || !/^[a-zA-Z0-9_-]{1,48}$/.test(raw.positionKey))) return false;
+  for (const key of ["width", "height"] as const) {
+    if (raw[key] !== undefined && (typeof raw[key] !== "number" || !Number.isFinite(raw[key]) || raw[key] < 40 || raw[key] > 600)) return false;
+  }
+  return true;
+}
+
 export function canRunPlugin(plugin: CustomPlugin, event: CompanionEvent): { ok: true } | { ok: false; reason: string } {
   if (!plugin.enabled) return { ok: false, reason: "disabled" };
   if (!plugin.trusted) return { ok: false, reason: "not trusted" };
@@ -66,14 +89,17 @@ export function canRunPlugin(plugin: CustomPlugin, event: CompanionEvent): { ok:
 export function runPlugin(plugin: CustomPlugin, event: CompanionEvent, onRecord: (record: PluginRunRecord) => void): void {
   const startedAt = Date.now();
   const permissionSet = new Set(plugin.permissions ?? []);
+  const pluginDir = dirname(plugin.scriptPath);
   const child = spawn(process.execPath, [plugin.scriptPath], {
-    cwd: dirname(plugin.scriptPath),
+    cwd: pluginDir,
     stdio: ["pipe", "pipe", "pipe"],
     windowsHide: true,
     env: {
       ...process.env,
       CLAWD_PLUGIN_PERMISSIONS: Array.from(permissionSet).join(","),
-      CLAWD_PLUGIN_EVENT: event.event
+      CLAWD_PLUGIN_EVENT: event.event,
+      CLAWD_PLUGIN_SETTINGS: JSON.stringify(plugin.settings ?? {}),
+      CLAWD_PLUGIN_DIR: pluginDir
     }
   });
 
@@ -129,4 +155,13 @@ function makeRecord(
 
 export function appendPluginRun(records: PluginRunRecord[], record: PluginRunRecord): PluginRunRecord[] {
   return [...records, record].slice(-RUN_LIMIT);
+}
+
+export function resolvePluginAssets(plugin: CustomPlugin): { spritesCss?: string } {
+  if (!plugin.trusted || !plugin.enabled || !plugin.scriptPath || !plugin.manifest?.assets?.sprites) return {};
+  const dir = resolve(dirname(plugin.scriptPath));
+  const cssPath = resolve(dir, plugin.manifest.assets.sprites);
+  if (!existsSync(cssPath)) return {};
+  if (!cssPath.startsWith(dir + sep) && cssPath !== dir) return {};
+  return { spritesCss: cssPath };
 }

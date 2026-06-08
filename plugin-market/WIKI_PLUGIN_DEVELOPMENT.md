@@ -120,7 +120,108 @@ Manifest 里的 `permissions` 用于告诉用户插件想做什么：
 6. 触发对应 Claude Code 事件。
 7. 查看 Recent runs 中的 stdout/stderr、退出码和耗时。
 
-## 7. 安全要求
+## 7. 插件设置（Plugin Settings）
+
+插件可以在 manifest 中声明可配置的设置项，应用会自动生成对应的配置表单 UI。
+
+### 声明设置
+
+在 `manifest.json` 中添加 `settings` 数组：
+
+```json
+{
+  "settings": [
+    {
+      "key": "logPath",
+      "label": "日志路径",
+      "type": "text",
+      "default": "events.log",
+      "description": "相对于插件目录的路径"
+    },
+    {
+      "key": "format",
+      "label": "输出格式",
+      "type": "select",
+      "default": "json",
+      "options": [
+        { "label": "JSON", "value": "json" },
+        { "label": "纯文本", "value": "text" }
+      ]
+    },
+    {
+      "key": "verbose",
+      "label": "详细模式",
+      "type": "toggle",
+      "default": false
+    },
+    {
+      "key": "maxItems",
+      "label": "最大条目",
+      "type": "number",
+      "default": 100,
+      "min": 1,
+      "max": 1000,
+      "step": 10
+    }
+  ]
+}
+```
+
+### 支持的控件类型
+
+| type | UI 控件 | 额外字段 |
+|------|---------|----------|
+| `text` | 文本输入框 | `placeholder` |
+| `number` | 滑块 | `min`, `max`, `step` |
+| `toggle` | 开关 | — |
+| `select` | 下拉框 | `options: [{label, value}]` |
+| `color` | 颜色选择器 | — |
+| `filepath` | 文件路径输入 | `placeholder` |
+
+### 在脚本中读取设置
+
+设置值通过环境变量 `CLAWD_PLUGIN_SETTINGS` 传递（JSON 格式），插件目录通过 `CLAWD_PLUGIN_DIR` 传递：
+
+```js
+const settings = JSON.parse(process.env.CLAWD_PLUGIN_SETTINGS || "{}");
+const pluginDir = process.env.CLAWD_PLUGIN_DIR || ".";
+const logPath = path.resolve(pluginDir, settings.logPath || "events.log");
+```
+
+## 8. 插件资产（Plugin Assets）
+
+插件可以提供 CSS 资产来扩展应用外观，例如替换宠物精灵图。
+
+### 声明资产
+
+```json
+{
+  "assets": {
+    "sprites": "sprites.css"
+  }
+}
+```
+
+### 精灵图 CSS 约定
+
+CSS 文件中的类名必须遵循现有命名规范：
+
+- `.clawd-sprite.clawd-sprite-{state}` — 状态精灵图（如 `idle`, `done`, `error`, `thinking`）
+- `.clawd-gif-{name}` — 动画 GIF 类（如 `idle_bubble`, `celebrate_bunny`）
+
+使用 `!important` 覆盖内置精灵图：
+
+```css
+.clawd-sprite.clawd-sprite-idle {
+  background-image: url("./my-sprite.png") !important;
+  width: 168px !important;
+  height: 160px !important;
+}
+```
+
+资产文件的 `url()` 路径相对于插件目录。只有信任且启用的插件才会加载资产。
+
+## 9. 安全要求
 
 插件不得：
 

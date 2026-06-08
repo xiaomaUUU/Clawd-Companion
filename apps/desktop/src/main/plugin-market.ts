@@ -26,7 +26,10 @@ function parseMarketItem(value: unknown): PluginMarketItem {
     nameZh: typeof raw.nameZh === "string" ? raw.nameZh : undefined,
     description: requiredString(raw.description, "description"),
     descriptionZh: typeof raw.descriptionZh === "string" ? raw.descriptionZh : undefined,
+    details: typeof raw.details === "string" ? raw.details : undefined,
     detailsZh: typeof raw.detailsZh === "string" ? raw.detailsZh : undefined,
+    readme: typeof raw.readme === "string" ? raw.readme : undefined,
+    readmeZh: typeof raw.readmeZh === "string" ? raw.readmeZh : undefined,
     author: requiredString(raw.author, "author"),
     version: requiredString(raw.version, "version"),
     entry,
@@ -55,7 +58,7 @@ export function rawUrl(baseUrl: string, path: string): string {
   return `${cleanBase}/${safeMarketPath(path).split("/").map(encodeURIComponent).join("/")}`;
 }
 
-export function installMarketPlugin(pluginRoot: string, item: PluginMarketItem, files: { entry: string; manifest: string }): CustomPlugin {
+export function installMarketPlugin(pluginRoot: string, item: PluginMarketItem, files: { entry: string; manifest: string; assets?: Record<string, string> }, previous?: CustomPlugin): CustomPlugin {
   const targetDir = join(pluginRoot, item.id);
   ensureInside(pluginRoot, targetDir);
   if (!existsSync(targetDir)) mkdirSync(targetDir, { recursive: true });
@@ -65,15 +68,30 @@ export function installMarketPlugin(pluginRoot: string, item: PluginMarketItem, 
   ensureInside(pluginRoot, manifestPath);
   writeFileSync(entryPath, files.entry);
   writeFileSync(manifestPath, files.manifest);
+  if (files.assets) {
+    for (const [name, content] of Object.entries(files.assets)) {
+      const assetPath = join(targetDir, name);
+      ensureInside(pluginRoot, assetPath);
+      writeFileSync(assetPath, content);
+    }
+  }
+  const manifest = JSON.parse(files.manifest);
   return {
     id: `market-${item.id}`,
+    marketId: item.id,
     name: item.name,
     scriptPath: entryPath,
-    enabled: false,
-    trusted: false,
-    events: item.events,
-    permissions: item.permissions,
-    manifest: JSON.parse(files.manifest)
+    enabled: previous?.enabled ?? false,
+    trusted: previous?.trusted ?? false,
+    events: previous?.events ?? item.events,
+    permissions: previous?.permissions ?? item.permissions,
+    settings: previous?.settings,
+    widgetOffsets: previous?.widgetOffsets,
+    manifest,
+    version: item.version,
+    author: item.author,
+    readme: item.readme ?? manifest.readme,
+    readmeZh: item.readmeZh ?? manifest.readmeZh
   };
 }
 

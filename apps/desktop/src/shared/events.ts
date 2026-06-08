@@ -152,6 +152,7 @@ export interface CompanionSettings {
   toolStreamMinDuration: number;
   showStatusProp: boolean;
   multiSessionEnabled: boolean;
+  permissionDialogEnabled: boolean;
   showSessionTitle: boolean;
   companionScale: number;
   companionIdleAnimations: string[];
@@ -303,12 +304,46 @@ export interface NotificationRule {
 
 export type PluginPermission = "event" | "network" | "filesystem" | "shell";
 
+export type PluginSettingType = "text" | "number" | "toggle" | "select" | "color" | "filepath";
+
+export interface PluginSettingField {
+  key: string;
+  label: string;
+  type: PluginSettingType;
+  default?: unknown;
+  description?: string;
+  min?: number;
+  max?: number;
+  step?: number;
+  options?: { label: string; value: string }[];
+  placeholder?: string;
+}
+
+export interface PluginAssets {
+  sprites?: string;
+}
+
+export type PluginWidgetType = "pomodoro";
+
+export interface PluginWidgetDescriptor {
+  type: PluginWidgetType;
+  label?: string;
+  positionKey?: string;
+  width?: number;
+  height?: number;
+}
+
 export interface PluginManifest {
   name?: string;
   description?: string;
   events: string[];
   permissions: PluginPermission[];
   timeoutMs?: number;
+  settings?: PluginSettingField[];
+  assets?: PluginAssets;
+  widgets?: PluginWidgetDescriptor[];
+  readme?: string;
+  readmeZh?: string;
 }
 
 export interface PluginRunRecord {
@@ -334,6 +369,14 @@ export interface CustomPlugin {
   permissions?: PluginPermission[];
   manifest?: PluginManifest;
   manifestError?: string;
+  settings?: Record<string, unknown>;
+  resolvedAssets?: { spritesCss?: string };
+  marketId?: string;
+  version?: string;
+  author?: string;
+  readme?: string;
+  readmeZh?: string;
+  widgetOffsets?: Record<string, { x: number; y: number }>;
 }
 
 export interface PluginMarketItem {
@@ -342,7 +385,10 @@ export interface PluginMarketItem {
   nameZh?: string;
   description: string;
   descriptionZh?: string;
+  details?: string;
   detailsZh?: string;
+  readme?: string;
+  readmeZh?: string;
   author: string;
   version: string;
   entry: string;
@@ -468,6 +514,7 @@ export const defaultSettings: CompanionSettings = {
   toolStreamMinDuration: 0.8,
   showStatusProp: true,
   multiSessionEnabled: false,
+  permissionDialogEnabled: true,
   showSessionTitle: true,
   companionScale: 0.5,
   companionIdleAnimations: ["thinking", "idle", "waiting_permission"],

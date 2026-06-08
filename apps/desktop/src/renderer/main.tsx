@@ -38,6 +38,7 @@ import { SessionStatsDashboard } from "./components/SessionStatsDashboard";
 import { TimelinePanel } from "./components/TimelinePanel";
 import { PluginManagerPanel } from "./components/PluginManagerPanel";
 import { PluginMarketPanel } from "./components/PluginMarketPanel";
+import { PluginSpriteLoader } from "./components/PluginSpriteLoader";
 import { NotificationRulesPanel } from "./components/NotificationRulesPanel";
 import { MonitorSettings } from "./components/MonitorSettings";
 import { DoctorPanel } from "./components/DoctorPanel";
@@ -276,7 +277,7 @@ function PetApp() {
     const handle = (e: MouseEvent) => {
       if (dragging.current) return;
       const target = e.target as HTMLElement;
-      void window.companion.setPetInteractive(!!target.closest('.clawd, .bubble-wrapper, .tool-streams, .permission-card, .pomodoro-widget'));
+      void window.companion.setPetInteractive(!!target.closest('.clawd, .bubble-wrapper, .tool-streams, .permission-card-wrapper, .perm-card, .pomodoro-widget'));
     };
     window.addEventListener('mousemove', handle);
     return () => {
@@ -521,6 +522,7 @@ function PetApp() {
 
   return (
     <main className={`pet-stage ${settings.clickThrough ? 'pet-clickthrough' : ''}`}>
+      <PluginSpriteLoader />
       <section className="pet-anchor" style={{ transform: `translateX(-50%) scale(${settings.petScale}) translate(${viewOff.x}px, ${viewOff.y}px)`, opacity: settings.petOpacity }} onMouseDown={beginNormalDrag}>
       {gitToast && (
         <div className="git-toast" key={gitToast.id} style={{ top: 8, left: "50%", transform: `translateX(-50%) translate(${(settings.positionOffsets?.gitToast?.x ?? 0)}px, ${(settings.positionOffsets?.gitToast?.y ?? 0)}px)` }}>
@@ -1294,6 +1296,7 @@ function SettingsApp() {
             <Toggle label={t("behavior.autoStartWithCli", "Claude Code 启动时自动启动")} checked={settings.autoStartWithCli} onChange={autoStartWithCli => updateSettings({ autoStartWithCli })} />
             <Toggle label={t("behavior.autoUpdate", "启动时自动检查更新")} checked={settings.autoUpdateEnabled} onChange={autoUpdateEnabled => updateSettings({ autoUpdateEnabled })} />
             <Toggle label={t("behavior.openSettingsOnStart", "启动时打开配置面板")} checked={settings.openSettingsOnStart} onChange={openSettingsOnStart => updateSettings({ openSettingsOnStart })} />
+            <Toggle label={t("behavior.permissionDialog", "权限申请卡片")} checked={settings.permissionDialogEnabled} onChange={permissionDialogEnabled => updateSettings({ permissionDialogEnabled })} />
           </GroupCard>
 
           <GroupCard icon={<Bell size={18} />} title={t("sections.sound", "通知和音效")}>

@@ -1,5 +1,54 @@
 {
   "version": 1,
   "updatedAt": "2026-06-08",
-  "plugins": []
+  "plugins": [
+    {
+      "id": "pomodoro",
+      "name": "Pomodoro",
+      "nameZh": "番茄钟",
+      "description": "A desktop focus timer widget rendered by Clawd Companion.",
+      "descriptionZh": "显示在桌面上的专注计时器组件。",
+      "details": "A widget-only plugin that brings the built-in Pomodoro timer into the plugin system.",
+      "detailsZh": "一个纯组件插件，把原本内置的番茄钟迁移到插件系统中管理。",
+      "author": "Clawd",
+      "version": "1.0.0",
+      "entry": "plugins/pomodoro/index.js",
+      "manifest": "plugins/pomodoro/index.manifest.json",
+      "events": [],
+      "permissions": [],
+      "tags": ["widget", "focus", "productivity"]
+    },
+    {
+      "id": "session-logger",
+      "name": "Session Logger",
+      "nameZh": "会话日志",
+      "description": "Logs Clawd events to a local file with configurable format.",
+      "descriptionZh": "将 Clawd 事件记录到本地文件，支持自定义格式。",
+      "details": "Useful for keeping a local audit trail of completed sessions, tool activity, and errors.",
+      "detailsZh": "适合保留本地审计记录，追踪会话完成、工具活动和错误。",
+      "author": "Clawd",
+      "version": "1.0.0",
+      "entry": "plugins/session-logger/index.js",
+      "manifest": "plugins/session-logger/index.manifest.json",
+      "events": ["session_start", "done", "error", "tool_start", "tool_end"],
+      "permissions": ["filesystem"],
+      "tags": ["logging", "example"]
+    },
+    {
+      "id": "webhook-notifier",
+      "name": "Webhook Notifier",
+      "nameZh": "Webhook 通知",
+      "description": "Sends Claude Code events to Discord, Slack, or any HTTP webhook endpoint.",
+      "descriptionZh": "将 Claude Code 事件推送到 Discord、Slack 或任意 HTTP Webhook 端点。",
+      "details": "Use this when you want to leave Claude Code running and receive completion/error notifications elsewhere.",
+      "detailsZh": "适合让 Claude Code 后台运行，同时在 Discord、Slack 或自己的服务中接收完成/错误通知。",
+      "author": "Clawd",
+      "version": "1.0.0",
+      "entry": "plugins/webhook-notifier/index.js",
+      "manifest": "plugins/webhook-notifier/index.manifest.json",
+      "events": ["done", "error", "session_start"],
+      "permissions": ["network"],
+      "tags": ["notification", "webhook", "discord", "slack"]
+    }
+  ]
 }

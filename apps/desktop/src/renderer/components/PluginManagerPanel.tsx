@@ -1,10 +1,56 @@
 import React, { useEffect, useState } from "react";
-import type { CustomPlugin, PluginPermission, PluginRunRecord } from "../../shared/events";
+import type { CustomPlugin, PluginPermission, PluginRunRecord, PluginSettingField } from "../../shared/events";
 import { useI18n } from "../useI18n";
 import { Toggle } from "./ui/Toggle";
+import { Slider } from "./ui/Slider";
 
 const permissions: PluginPermission[] = ["event", "network", "filesystem", "shell"];
 const eventOptions = ["session_start", "prompt_submit", "tool_start", "tool_end", "permission_wait", "done", "error", "git_operation"];
+
+function PluginSettingsFields({ fields, values, onChange }: { fields: PluginSettingField[]; values: Record<string, unknown>; onChange: (key: string, value: unknown) => void }) {
+  return (
+    <div style={{ marginTop: 10 }}>
+      <div className="note">Plugin Settings</div>
+      <div style={{ display: "grid", gap: 8, marginTop: 6 }}>
+        {fields.map(field => {
+          const val = values[field.key] ?? field.default;
+          switch (field.type) {
+            case "toggle":
+              return <Toggle key={field.key} label={field.label} checked={!!val} onChange={v => onChange(field.key, v)} />;
+            case "number":
+              return <Slider key={field.key} label={field.label} min={field.min ?? 0} max={field.max ?? 100} step={field.step ?? 1} value={Number(val) || 0} onChange={v => onChange(field.key, v)} />;
+            case "select":
+              return (
+                <div key={field.key} style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <span className="field-label" style={{ minWidth: 120 }}>{field.label}</span>
+                  <select className="text-input" value={String(val ?? "")} onChange={e => onChange(field.key, e.target.value)}>
+                    {(field.options ?? []).map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
+                  </select>
+                </div>
+              );
+            case "color":
+              return (
+                <div key={field.key} style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <span className="field-label" style={{ minWidth: 120 }}>{field.label}</span>
+                  <input type="color" value={String(val ?? "#000000")} onChange={e => onChange(field.key, e.target.value)} />
+                </div>
+              );
+            default:
+              return (
+                <div key={field.key}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <span className="field-label" style={{ minWidth: 120 }}>{field.label}</span>
+                    <input type="text" className="text-input" value={String(val ?? "")} placeholder={field.placeholder} onChange={e => onChange(field.key, e.target.value)} />
+                  </div>
+                  {field.description && <small className="note" style={{ marginLeft: 128 }}>{field.description}</small>}
+                </div>
+              );
+          }
+        })}
+      </div>
+    </div>
+  );
+}
 
 export function PluginManagerPanel({ settings, updateSettings }: { settings: any; updateSettings: (s: any) => void }) {
   const { t } = useI18n();
@@ -99,6 +145,14 @@ export function PluginManagerPanel({ settings, updateSettings }: { settings: any
                     );
                   })}
                 </div>
+
+                {p.manifest?.settings && p.manifest.settings.length > 0 && (
+                  <PluginSettingsFields
+                    fields={p.manifest.settings}
+                    values={p.settings ?? {}}
+                    onChange={(key, value) => updatePlugin(p.id, { settings: { ...(p.settings ?? {}), [key]: value } })}
+                  />
+                )}
 
                 {pluginRuns.length > 0 && (
                   <div style={{ marginTop: 10 }}>

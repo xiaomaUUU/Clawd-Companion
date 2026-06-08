@@ -446,6 +446,7 @@
     "toolStreamStay": "Tool stream duration",
     "eventHistory": "Event history",
     "enableMultiSession": "Enable multi-session",
+    "permissionDialog": "Permission request card",
     "testing": "Beta",
     "companionScale": "Small Clawd scale",
     "uiLiquid": "Liquid glass",
