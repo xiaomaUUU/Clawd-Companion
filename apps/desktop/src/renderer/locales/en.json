@@ -386,6 +386,7 @@
   },
   "sections": {
     "claudeConnection": "Claude Code connection",
+    "sources": "Sources",
     "connectionDetails": "Connection details",
     "privacySecurity": "Privacy & security",
     "display": "Display",

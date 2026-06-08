@@ -179,6 +179,15 @@ The release flow is documented in [`CLAUDE.md`](./CLAUDE.md):
 - Push a `v*.*.*` tag → CI builds, renames artifacts, and publishes to GitHub Releases automatically.
 - Manual flow: `npm run dist`, then `gh release create`.
 
+## Multi-CLI support
+
+Starting with v1.6, Clawd Companion tracks multiple AI coding CLIs through a single `Provider` abstraction:
+
+- **Claude Code** (default): registers hooks via `~/.claude/settings.json`, listening for `SessionStart` / `UserPromptSubmit` / `PreToolUse` / `PostToolUse` / `Notification` / `Stop`.
+- **OpenAI Codex** (new): registers hooks via `~/.codex/config.toml` (TOML), listening for `SessionStart` / `UserPromptSubmit` / `PreToolUse` / `PostToolUse` / `PermissionRequest` / `Stop`.
+
+Manage both providers side-by-side under Settings → Sources. Adding a third CLI in the future only requires implementing the `Provider` interface. See the *Multi-CLI architecture* section in [`CLAUDE.md`](./CLAUDE.md) for details.
+
 ## Tech Stack
 
 - Electron + React + TypeScript + Vite

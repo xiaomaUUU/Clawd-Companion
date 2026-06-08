@@ -1,8 +1,8 @@
 import { copyFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
 import { writeJsonAtomic } from "./atomic-json.js";
-import { dirname } from "node:path";
-
-export const REQUIRED_HOOK_EVENTS = ["SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse", "Notification", "Stop"] as const;
+import { dirname, sep } from "node:path";
+import type { Provider } from "../shared/providers.js";
+import { checkTomlHooks, parseTomlHooks, readTomlHooks, serializeTomlHooksPreserve, writeTomlHooks, TomlParseError } from "./toml-hooks.js";
 
 export interface HooksStatus {
   installed: boolean;
@@ -25,22 +25,38 @@ interface HookEntry {
 
 type SettingsJson = Record<string, unknown>;
 
-export function checkHooks(settingsPath: string, command: string): HooksStatus {
+/** All forwarder entrypoint paths this app might have written in the past. */
+const COMPANION_FORWARDER_PATH_PATTERNS = [
+  "hook-forwarder/index.js",
+  "hook-forwarder-codex/index.js"
+];
+
+export function checkHooks(settingsPath: string, command: string, provider?: Provider): HooksStatus {
+  if (provider && provider.format === "toml") {
+    if (!existsSync(settingsPath)) return missingStatus(false, provider.requiredEvents);
+    try {
+      const file = readTomlHooks(settingsPath);
+      const result = checkTomlHooks(file, provider.requiredEvents, command);
+      return { ...result, configExists: true, commandMatches: true };
+    } catch {
+      return { ...missingStatus(true, provider.requiredEvents), commandMatches: false };
+    }
+  }
+
   if (!existsSync(settingsPath)) {
-    return missingStatus(false);
+    return missingStatus(false, ["SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse", "Notification", "Stop"]);
   }
 
   const settingsJson = readSettingsObject(settingsPath);
-  if (!settingsJson) {
-    return missingStatus(true);
-  }
+  if (!settingsJson) return missingStatus(true, ["SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse", "Notification", "Stop"]);
 
   const hooks = getHooksObject(settingsJson);
+  const requiredEvents = provider?.requiredEvents ?? ["SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse", "Notification", "Stop"];
   const missing: string[] = [];
   let commandOk = true;
   let count = 0;
 
-  for (const eventName of REQUIRED_HOOK_EVENTS) {
+  for (const eventName of requiredEvents) {
     const entries = getHookEntries(hooks[eventName]);
     if (!entries.some(entry => entryHasCommand(entry, command))) {
       missing.push(eventName);
@@ -54,19 +70,38 @@ export function checkHooks(settingsPath: string, command: string): HooksStatus {
     installed: missing.length === 0 && commandOk,
     configExists: true,
     hookCount: count,
-    requiredCount: REQUIRED_HOOK_EVENTS.length,
+    requiredCount: requiredEvents.length,
     missingEvents: missing,
     commandMatches: commandOk
   };
 }
 
-export function installHooks(settingsPath: string, backupPath: string, command: string): { success: boolean; error?: string } {
+export function installHooks(settingsPath: string, backupPath: string, command: string, provider?: Provider): { success: boolean; error?: string } {
+  if (provider && provider.format === "toml") {
+    try {
+      const file = existsSync(settingsPath)
+        ? readTomlHooks(settingsPath)
+        : { events: {}, preamble: "", foreignSections: [] };
+      writeTomlHooks(
+        settingsPath,
+        file,
+        provider.requiredEvents,
+        { command, commandWindows: process.platform === "win32" ? command : undefined, timeout: 5 }
+      );
+      return { success: true };
+    } catch (error) {
+      if (error instanceof TomlParseError) return { success: false, error: `Codex config.toml 含有不支持的语法: ${error.message}` };
+      return { success: false, error: error instanceof Error ? error.message : String(error) };
+    }
+  }
+
   try {
     const loaded = loadOrCreateSettings(settingsPath, backupPath);
     if ("error" in loaded) return { success: false, error: loaded.error };
 
     const hooks = ensureHooksObject(loaded.settingsJson);
-    for (const eventName of REQUIRED_HOOK_EVENTS) {
+    const requiredEvents = provider?.requiredEvents ?? ["SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse", "Notification", "Stop"];
+    for (const eventName of requiredEvents) {
       hooks[eventName] = upsertHookEntry(getHookEntries(hooks[eventName]), command, true);
     }
 
@@ -77,15 +112,37 @@ export function installHooks(settingsPath: string, backupPath: string, command: 
   }
 }
 
-export function repairHooks(settingsPath: string, backupPath: string, command: string): { success: boolean; fixed: string[]; error?: string } {
+export function repairHooks(settingsPath: string, backupPath: string, command: string, provider?: Provider): { success: boolean; fixed: string[]; error?: string } {
+  if (provider && provider.format === "toml") {
+    try {
+      const file = existsSync(settingsPath)
+        ? readTomlHooks(settingsPath)
+        : { events: {}, preamble: "", foreignSections: [] };
+      const before = checkTomlHooks(file, provider.requiredEvents, command);
+      writeTomlHooks(
+        settingsPath,
+        file,
+        provider.requiredEvents,
+        { command, commandWindows: process.platform === "win32" ? command : undefined, timeout: 5 }
+      );
+      const afterFile = existsSync(settingsPath) ? readTomlHooks(settingsPath) : file;
+      const after = checkTomlHooks(afterFile, provider.requiredEvents, command);
+      return { success: true, fixed: before.missingEvents.filter(e => !after.missingEvents.includes(e)) };
+    } catch (error) {
+      if (error instanceof TomlParseError) return { success: false, fixed: [], error: `Codex config.toml 含有不支持的语法: ${error.message}` };
+      return { success: false, fixed: [], error: error instanceof Error ? error.message : String(error) };
+    }
+  }
+
   try {
     const loaded = loadOrCreateSettings(settingsPath, backupPath);
     if ("error" in loaded) return { success: false, fixed: [], error: loaded.error };
 
     const hooks = ensureHooksObject(loaded.settingsJson);
     const fixed: string[] = [];
+    const requiredEvents = provider?.requiredEvents ?? ["SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse", "Notification", "Stop"];
 
-    for (const eventName of REQUIRED_HOOK_EVENTS) {
+    for (const eventName of requiredEvents) {
       const entries = getHookEntries(hooks[eventName]);
       if (!entries.some(entry => entryHasCommand(entry, command))) {
         fixed.push(eventName);
@@ -100,19 +157,49 @@ export function repairHooks(settingsPath: string, backupPath: string, command: s
   }
 }
 
-export function removeHooks(settingsPath: string, backupPath: string, command: string): { success: boolean; error?: string } {
+export function removeHooks(settingsPath: string, backupPath: string, command: string, provider?: Provider): { success: boolean; error?: string } {
+  if (provider && provider.format === "toml") {
+    try {
+      if (!existsSync(settingsPath)) return { success: true };
+      const file = readTomlHooks(settingsPath);
+      const requiredEvents = provider.requiredEvents;
+      const marker = `command = "${command.replaceAll("\\", "\\\\").replaceAll("\"", "\\\"")}"`;
+      let changed = false;
+      for (const eventName of requiredEvents) {
+        const entries = file.events[eventName] ?? [];
+        const next = entries.filter(entry => !entry.body.includes(marker));
+        if (next.length !== entries.length) {
+          changed = true;
+          if (next.length > 0) file.events[eventName] = next;
+          else delete file.events[eventName];
+        }
+      }
+      if (changed) {
+        // Preserve-only write: don't re-add the companion entry. We use the
+        // shared serializer with an empty `requiredEvents` set so it just
+        // flushes the current shape of `file`.
+        const fs = require("node:fs") as typeof import("node:fs");
+        if (existsSync(settingsPath)) fs.copyFileSync(settingsPath, settingsPath + ".clawd-backup");
+        fs.writeFileSync(settingsPath, serializeTomlHooksPreserve(file), "utf8");
+      }
+      return { success: true };
+    } catch (error) {
+      if (error instanceof TomlParseError) return { success: false, error: `Codex config.toml 含有不支持的语法: ${error.message}` };
+      return { success: false, error: error instanceof Error ? error.message : String(error) };
+    }
+  }
+
   try {
     if (!existsSync(settingsPath)) return { success: true };
 
     const settingsJson = readSettingsObject(settingsPath);
-    if (!settingsJson) {
-      return { success: false, error: "settings.json 格式错误：期望对象" };
-    }
+    if (!settingsJson) return { success: false, error: "settings.json 格式错误：期望对象" };
     copyFileSync(settingsPath, backupPath);
 
     const hooks = getHooksObject(settingsJson);
+    const requiredEvents = provider?.requiredEvents ?? ["SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse", "Notification", "Stop"];
     let changed = false;
-    for (const eventName of REQUIRED_HOOK_EVENTS) {
+    for (const eventName of requiredEvents) {
       const entries = getHookEntries(hooks[eventName]);
       const nextEntries = entries
         .map(entry => removeCommandFromEntry(entry, command, true))
@@ -139,13 +226,13 @@ export function normalizeCommandPath(pathLike: string): string {
   return pathLike.replaceAll(String.fromCharCode(92), "/");
 }
 
-function missingStatus(configExists: boolean): HooksStatus {
+function missingStatus(configExists: boolean, requiredEvents: readonly string[]): HooksStatus {
   return {
     installed: false,
     configExists,
     hookCount: 0,
-    requiredCount: REQUIRED_HOOK_EVENTS.length,
-    missingEvents: [...REQUIRED_HOOK_EVENTS],
+    requiredCount: requiredEvents.length,
+    missingEvents: [...requiredEvents],
     commandMatches: false
   };
 }
@@ -214,5 +301,12 @@ function removeCommandFromEntry(entry: HookEntry, command: string, removeStaleCo
 }
 
 function entryIsCompanionHook(entry: HookEntry): boolean {
-  return Array.isArray(entry.hooks) && entry.hooks.some(hook => hook?.type === "command" && typeof hook.command === "string" && hook.command.includes("hook-forwarder/index.js"));
+  return Array.isArray(entry.hooks) && entry.hooks.some(hook => {
+    if (hook?.type !== "command") return false;
+    const cmd = hook.command;
+    if (typeof cmd !== "string") return false;
+    return COMPANION_FORWARDER_PATH_PATTERNS.some(pattern => cmd.includes(pattern));
+  });
 }
+
+export { parseTomlHooks };

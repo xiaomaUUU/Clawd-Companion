@@ -49,8 +49,8 @@
 ### 核心体验
 
 - 🪟 **透明桌宠窗口**，始终置顶，支持拖拽和边界限制。
-- 🔌 **本地事件服务**：HTTP + WebSocket 接收 Claude Code hooks 事件。
-- 📡 **Hook forwarder**：自动转发 `SessionStart` / `UserPromptSubmit` / `PreToolUse` / `PostToolUse` / `Notification` / `Stop`。
+- 🔌 **本地事件服务**：HTTP + WebSocket 接收 CLI hooks 事件。
+- 📡 **多 CLI forwarder**：同时支持 Claude Code 与 OpenAI Codex（v1.6 新增）。可分别转发 `SessionStart` / `UserPromptSubmit` / `PreToolUse` / `PostToolUse` / `PermissionRequest` / `Stop` 等事件。
 - 🔄 **自动更新**：基于 GitHub Releases，启动时静默检查，一键安装。
 - 🎬 **动作动画映射**：为每个工具/事件自定义 Clawd 精灵动画。
 - 📊 **运行统计**：工具调用排行、会话数、权限统计、活跃时段等深度数据持久化。
@@ -114,6 +114,7 @@ CLAWD_COMPANION_AUTOSTART=0   # 强制关闭
 | 设置 → 外观 | 主题（经典 / 液态玻璃）、尺寸、缩放、透明度 |
 | 设置 → 行为 | 自动启动 Claude Code、动画映射、音效、通知规则 |
 | 设置 → 数据 | 事件历史、运行统计、Token 用量、导入/导出 |
+| 设置 → 数据源 | 同时管理 Claude Code 与 OpenAI Codex 的 hooks 安装/修复/移除 |
 | 设置 → 插件 | 启用插件、查看权限与日志 |
 | 编辑模式 | 在桌宠上直接拖动 Clawd 和气泡/卡片/工具条 |
 
@@ -178,6 +179,15 @@ npm run version:major   # 递增 major（1.5.2 → 2.0.0)
 
 - 推送 `v*.*.*` tag → CI 自动构建、产物重命名、发布到 GitHub Releases。
 - 手动发布：`npm run dist`，再 `gh release create`。
+
+## 多 CLI 支持
+
+从 v1.6 开始，Clawd Companion 通过统一的 `Provider` 抽象同时跟踪多个 AI 编程 CLI：
+
+- **Claude Code**（默认）：通过 `~/.claude/settings.json` 注册 hook，监听 `SessionStart` / `UserPromptSubmit` / `PreToolUse` / `PostToolUse` / `Notification` / `Stop`。
+- **OpenAI Codex**（新增）：通过 `~/.codex/config.toml`（TOML）注册 hook，监听 `SessionStart` / `UserPromptSubmit` / `PreToolUse` / `PostToolUse` / `PermissionRequest` / `Stop`。
+
+在「设置 → 数据源」可同时管理两个 CLI 的 hook 状态。新增其他 CLI（如 Aider / Continue 等）只需要再实现一个 `Provider` 接口即可。架构说明见 [`CLAUDE.md`](./CLAUDE.md) 的 *多 CLI 架构* 一节。
 
 ## 技术栈
 

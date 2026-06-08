@@ -386,6 +386,7 @@
   },
   "sections": {
     "claudeConnection": "Claude Code 连接",
+    "sources": "数据源 (Sources)",
     "connectionDetails": "连接详情",
     "privacySecurity": "隐私与安全",
     "display": "显示",

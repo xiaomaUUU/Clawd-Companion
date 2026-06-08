@@ -10,14 +10,14 @@
     "dev": "vite --host 127.0.0.1",
     "dev:electron": "tsc -p tsconfig.node.json && tsc -p tsconfig.preload.json && concurrently -k \"npm run dev\" \"wait-on tcp:5173 && cross-env VITE_DEV_SERVER_URL=http://127.0.0.1:5173 electron .\"",
     "build": "tsc -p tsconfig.node.json && tsc -p tsconfig.preload.json && tsc -p tsconfig.json && vite build && npm run build:forwarder",
-    "build:forwarder": "tsc -p apps/hook-forwarder/tsconfig.json",
+    "build:forwarder": "tsc -p apps/hook-forwarder-core/tsconfig.json && tsc -p apps/hook-forwarder/tsconfig.json && tsc -p apps/hook-forwarder-codex/tsconfig.json",
     "start": "electron .",
     "pack": "npm run build && electron-builder --dir",
     "dist": "npm run build && electron-builder",
     "dist:validate": "node scripts/validate-dist.mjs",
     "downloads": "node scripts/release-downloads.mjs",
     "lint": "node scripts/lint.mjs",
-    "typecheck": "tsc -p tsconfig.node.json --noEmit && tsc -p tsconfig.preload.json --noEmit && tsc -p tsconfig.json --noEmit && tsc -p apps/hook-forwarder/tsconfig.json --noEmit",
+    "typecheck": "tsc -p tsconfig.node.json --noEmit && tsc -p tsconfig.preload.json --noEmit && tsc -p tsconfig.json --noEmit && tsc -p apps/hook-forwarder-core/tsconfig.json --noEmit && tsc -p apps/hook-forwarder/tsconfig.json --noEmit && tsc -p apps/hook-forwarder-codex/tsconfig.json --noEmit",
     "version:patch": "node scripts/bump-version.mjs patch",
     "version:minor": "node scripts/bump-version.mjs minor",
     "version:major": "node scripts/bump-version.mjs major",
@@ -44,6 +44,10 @@
       {
         "from": "dist/hook-forwarder",
         "to": "hook-forwarder"
+      },
+      {
+        "from": "dist/hook-forwarder-codex",
+        "to": "hook-forwarder-codex"
       },
       {
         "from": "plugin-market",

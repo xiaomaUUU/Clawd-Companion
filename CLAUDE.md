@@ -53,3 +53,47 @@
    - Prod: `<install>/resources/hook-forwarder/index.js` → `<install>/Clawd Companion.exe`
 4. 通过 `child_process.spawn` + `detached: true` + `unref()` 启动，不阻塞 forwarder 退出
 5. **环境变量覆盖**（高级用户）：`CLAWD_COMPANION_AUTOSTART=1` 强制开启，`=0` 强制关闭
+
+## 多 CLI 架构（Multi-CLI）
+
+Clawd Companion 从 v1.6.0 起支持同时跟踪多个 AI 编程 CLI：Claude Code（默认）和 OpenAI Codex（新增）。
+
+### Provider 抽象
+
+所有 CLI 共用一个 `Provider` 接口，位于 `apps/desktop/src/shared/providers.ts`：
+
+- `id` / `displayName` / `defaultClientLabel`：身份与展示名
+- `format`：`"json"`（Claude Code 用 `~/.claude/settings.json`）或 `"toml"`（Codex 用 `~/.codex/config.toml`）
+- `settingsPath`：配置文件绝对路径（Codex 读取 `$CODEX_HOME`）
+- `requiredEvents` / `permissionEvents`：需要订阅的 hook 事件
+- `normalize(payload, env)`：把 raw hook JSON 翻译成 `CompanionEvent`
+- `isPermissionEvent(payload)` / `formatPermissionDecision(decision, reason)`：权限流判定与 stdout 线协议
+
+注册表：`claudeCodeProvider` 和 `codexProvider`，通过 `getProvider(id)` 获取。
+
+### Forwarder 二进制拆分
+
+每个 Provider 都有自己的 forwarder 二进制：
+
+- `apps/hook-forwarder/` → `dist/hook-forwarder/index.js`（Claude Code）
+- `apps/hook-forwarder-codex/` → `dist/hook-forwarder-codex/index.js`（Codex）
+- `apps/hook-forwarder-core/` 共享 stdin / 连接 / permission / wakeup 逻辑
+
+新增 CLI 时，只需：
+1. 实现 `Provider` 模块
+2. 新建 `<cli>-forwarder/` shim，导入 core 强制 `provider = "<cli>"`
+3. `package.json` 的 `build:forwarder` 加上新 tsconfig
+4. `extraResources` 加上新的 `<cli>-forwarder/` 资源
+
+### Hooks 安装 / TOML 序列化
+
+`apps/desktop/src/main/hooks-manager.ts` 是 provider 感知的。`provider.format === "toml"` 时走 `toml-hooks.ts`（手写最小 TOML 解析器，保留用户不认识的段；corrupt 文件不写）。
+
+Windows 下 Codex 同时写 `command` 与 `commandWindows`，使用单引号 TOML 字符串保留反斜杠。
+
+### 设置与 UI
+
+- `CompanionSettings.enabledSources: ProviderId[]`（默认 `["claude-code"]`），迁移时缺失补全、非法值过滤、按 `PROVIDER_IDS` 重排。
+- 设置面板新增「数据源 (Sources)」区块（`SourcesPanel.tsx`），同时显示 Claude Code 与 OpenAI Codex 两条 hook 状态卡片，支持 install / repair / remove。
+- `DoctorReport` 改为按 provider 聚合（向后兼容旧字段 `hooks` / `forwarder.expectedPath`）。
+

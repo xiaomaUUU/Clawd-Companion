@@ -16,6 +16,7 @@ import { appendEventHistory, loadEventHistory, saveEventHistory, type EventHisto
 import { appendPluginRun, canRunPlugin, normalizePlugin, runPlugin } from "./plugin-runner.js";
 import { installMarketPlugin, parseMarketIndex, rawUrl, safeMarketPath } from "./plugin-market.js";
 import { checkHooks as checkManagedHooks, installHooks as installManagedHooks, normalizeCommandPath, removeHooks as removeManagedHooks, repairHooks as repairManagedHooks } from "./hooks-manager.js";
+import { getProvider, type Provider } from "../shared/providers.js";
 import { createAutoUpdaterController } from "./auto-updater.js";
 import { writeJsonAtomic } from "./atomic-json.js";
 import { bearerToken, isCompanionEvent, isPermissionRoute, isRoute, jsonBodyErrorStatus, parseJsonBody, parsePermissionRequestBody, streamToken, writeJson } from "./event-server.js";
@@ -715,51 +716,70 @@ function broadcastSettings() {
 const claudeSettingsPath = join(homedir(), ".claude", "settings.json");
 const backupPath = join(homedir(), ".claude", "settings.clawd-backup.json");
 
-function getForwarderPath(): string {
-  const devPath = normalizeCommandPath(join(__dirname, "../../dist/hook-forwarder/index.js"));
+function getForwarderPath(providerId: "claude-code" | "codex"): string {
+  const dir = providerId === "codex" ? "hook-forwarder-codex" : "hook-forwarder";
+  const devPath = normalizeCommandPath(join(__dirname, `../../dist/${dir}/index.js`));
   if (!app.isPackaged && existsSync(devPath)) return devPath;
-  return normalizeCommandPath(join(process.resourcesPath, "hook-forwarder/index.js"));
+  return normalizeCommandPath(join(process.resourcesPath, `${dir}/index.js`));
 }
 
-function getHookCommand(): string {
-  return `node "${getForwarderPath()}"`;
+function getHookCommand(providerId: "claude-code" | "codex"): string {
+  return `node "${getForwarderPath(providerId)}"`;
 }
 
-function checkHooks() {
-  return checkManagedHooks(claudeSettingsPath, getHookCommand());
+function checkHooksFor(providerId: "claude-code" | "codex") {
+  const provider = getProvider(providerId);
+  return checkProviderHooks(provider);
 }
 
-function installHooks() {
-  return installManagedHooks(claudeSettingsPath, backupPath, getHookCommand());
+function checkProviderHooks(provider: Provider) {
+  return checkManagedHooks(provider.settingsPath, getHookCommand(provider.id), provider);
 }
 
-function repairHooks() {
-  return repairManagedHooks(claudeSettingsPath, backupPath, getHookCommand());
+function installProviderHooks(provider: Provider) {
+  return installManagedHooks(provider.settingsPath, backupPathFor(provider), getHookCommand(provider.id), provider);
 }
 
-function removeHooks() {
-  return removeManagedHooks(claudeSettingsPath, backupPath, getHookCommand());
+function repairProviderHooks(provider: Provider) {
+  return repairManagedHooks(provider.settingsPath, backupPathFor(provider), getHookCommand(provider.id), provider);
+}
+
+function removeProviderHooks(provider: Provider) {
+  return removeManagedHooks(provider.settingsPath, backupPathFor(provider), getHookCommand(provider.id), provider);
+}
+
+function backupPathFor(provider: Provider): string {
+  // 与原 Claude hooks 共用一个 backup 路径以避免污染用户配置；
+  // Codex 使用独立 backup，避免和 Claude 互相覆盖。
+  if (provider.id === "claude-code") return backupPath;
+  return join(homedir(), ".codex", "settings.clawd-backup.toml");
 }
 
 ipcMain.handle("settings:get", () => settings);
 ipcMain.handle("settings:save", (_, next: Partial<CompanionSettings>) => saveSettings(next));
 ipcMain.handle("connection:get", () => getConnectionStatus());
 ipcMain.handle("event:test", (_, event: CompanionEvent) => emitEvent(event));
-ipcMain.handle("hooks:check", () => checkHooks());
-ipcMain.handle("hooks:install", () => installHooks());
-ipcMain.handle("hooks:repair", () => repairHooks());
-ipcMain.handle("hooks:remove", () => removeHooks());
+ipcMain.handle("hooks:check", (_, providerId: "claude-code" | "codex" = "claude-code") => checkHooksFor(providerId));
+ipcMain.handle("hooks:install", (_, providerId: "claude-code" | "codex" = "claude-code") => installProviderHooks(getProvider(providerId)));
+ipcMain.handle("hooks:repair", (_, providerId: "claude-code" | "codex" = "claude-code") => repairProviderHooks(getProvider(providerId)));
+ipcMain.handle("hooks:remove", (_, providerId: "claude-code" | "codex" = "claude-code") => removeProviderHooks(getProvider(providerId)));
 ipcMain.handle("doctor:get-report", () => {
-  const forwarderPath = getForwarderPath();
   const plugins = (settings.customPlugins ?? []).map(normalizePlugin);
+  const providersReport: Record<string, { hooks: ReturnType<typeof checkProviderHooks>; forwarder: { expectedPath: string; exists: boolean } }> = {};
+  for (const id of ["claude-code", "codex"] as const) {
+    const provider = getProvider(id);
+    const fp = getForwarderPath(id);
+    providersReport[id] = {
+      hooks: checkProviderHooks(provider),
+      forwarder: { expectedPath: fp, exists: existsSync(fp) }
+    };
+  }
   return {
     generatedAt: Date.now(),
     appVersion: app.getVersion(),
     connection: getConnectionStatus(),
-    hooks: checkHooks(),
+    providers: providersReport,
     forwarder: {
-      expectedPath: forwarderPath,
-      exists: existsSync(forwarderPath),
       autoStartMarkerPath,
       autoStartMarkerExists: existsSync(autoStartMarkerPath)
     },

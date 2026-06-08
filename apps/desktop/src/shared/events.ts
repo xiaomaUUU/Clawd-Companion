@@ -375,7 +375,23 @@ export interface DoctorReport {
   generatedAt: number;
   appVersion: string;
   connection: CompanionConnectionStatus;
-  hooks: {
+  /** Per-provider status. `claude-code` is the default; `codex` is opt-in. */
+  providers?: Record<ProviderId, {
+    hooks: {
+      installed: boolean;
+      configExists: boolean;
+      hookCount: number;
+      requiredCount: number;
+      missingEvents: string[];
+      commandMatches: boolean;
+    };
+    forwarder: {
+      expectedPath: string;
+      exists: boolean;
+    };
+  }>;
+  /** @deprecated kept for backward compat with the legacy single-provider shape. */
+  hooks?: {
     installed: boolean;
     configExists: boolean;
     hookCount: number;
@@ -384,8 +400,8 @@ export interface DoctorReport {
     commandMatches: boolean;
   };
   forwarder: {
-    expectedPath: string;
-    exists: boolean;
+    expectedPath?: string;
+    exists?: boolean;
     autoStartMarkerPath: string;
     autoStartMarkerExists: boolean;
   };

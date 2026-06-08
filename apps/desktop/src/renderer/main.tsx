@@ -42,6 +42,7 @@ import { NotificationRulesPanel } from "./components/NotificationRulesPanel";
 import { MonitorSettings } from "./components/MonitorSettings";
 import { DoctorPanel } from "./components/DoctorPanel";
 import { StatsPanel } from "./components/StatsPanel";
+import { SourcesPanel } from "./components/SourcesPanel";
 
 const clawdGifName: Record<PetState, string> = {
   idle: "clawd_png_idle",
@@ -1188,6 +1189,9 @@ function SettingsApp() {
         </>}
 
         {activeSection === "connect" && <>
+          <GroupCard icon={<PlugZap size={18} />} title={t("sections.sources", "数据源（Sources）")}>
+            <SourcesPanel />
+          </GroupCard>
           <GroupCard icon={<PlugZap size={18} />} title={t("sections.claudeConnection", "Claude Code 连接")}>
             <HooksManager />
           </GroupCard>
