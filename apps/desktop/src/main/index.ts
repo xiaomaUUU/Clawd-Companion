@@ -232,6 +232,7 @@ function saveSettings(next: Partial<CompanionSettings>) {
   app.setLoginItemSettings({ openAtLogin: settings.launchAtLogin, path: process.execPath });
   syncAutoStartMarker(settings.autoStartWithCli);
   syncConnectionConfig();
+  if (next.hooksGuardEnabled !== undefined) startHooksGuard();
   if (petWindow && (settings.viewScale ?? settings.petScale) !== previousViewScale) {
     const size = petWindowSize();
     petWindow.setSize(size.width, size.height);
@@ -777,6 +778,42 @@ function backupPathFor(provider: Provider): string {
   return join(homedir(), ".codex", "settings.clawd-backup.toml");
 }
 
+let hooksGuardTimer: ReturnType<typeof setInterval> | null = null;
+
+function runHooksGuardCheck() {
+  if (!settings.hooksGuardEnabled) return;
+  for (const providerId of settings.enabledSources ?? []) {
+    try {
+      const status = checkHooksFor(providerId);
+      if (!status.installed) {
+        logRuntime(`[HooksGuard] ${providerId}: hooks missing (${status.missingEvents.join(", ")}), auto-repairing`);
+        const result = repairProviderHooks(getProvider(providerId));
+        if (result.success) {
+          logRuntime(`[HooksGuard] ${providerId}: repaired ${result.fixed.length} events`);
+        } else {
+          logRuntime(`[HooksGuard] ${providerId}: repair failed: ${result.error}`);
+        }
+      }
+    } catch (e) {
+      logRuntime(`[HooksGuard] ${providerId}: check error: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }
+}
+
+function startHooksGuard() {
+  if (hooksGuardTimer) clearInterval(hooksGuardTimer);
+  if (!settings.hooksGuardEnabled) return;
+  // First check after 15s (let app fully start), then every 60s
+  setTimeout(() => {
+    runHooksGuardCheck();
+    hooksGuardTimer = setInterval(runHooksGuardCheck, 60_000);
+  }, 15_000);
+}
+
+function stopHooksGuard() {
+  if (hooksGuardTimer) { clearInterval(hooksGuardTimer); hooksGuardTimer = null; }
+}
+
 ipcMain.handle("settings:get", () => settings);
 ipcMain.handle("settings:save", (_, next: Partial<CompanionSettings>) => saveSettings(next));
 ipcMain.handle("connection:get", () => getConnectionStatus());
@@ -1172,6 +1209,7 @@ if (!gotSingleInstanceLock) {
         autoUpdateController.checkForUpdates().catch(e => logRuntime("AutoUpdate check failed: " + e));
       }, 5000);
     }
+    startHooksGuard();
   });
 
   app.on("window-all-closed", () => {
@@ -1186,6 +1224,7 @@ if (!gotSingleInstanceLock) {
     wsServer?.close();
     eventServer?.close();
     stopGitWatcher();
+    stopHooksGuard();
     permissionBroker.shutdown("App quitting");
   });
 }

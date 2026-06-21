@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
-import { Bot, PlugZap, Sparkles } from "lucide-react";
+import { Bot, PlugZap, ShieldCheck, Sparkles } from "lucide-react";
 import { useI18n } from "../useI18n";
+import { Toggle } from "./ui/Toggle";
 
 interface ProviderStatus {
   installed: boolean;
@@ -39,8 +40,13 @@ export function SourcesPanel() {
   const [providers, setProviders] = useState<DoctorProviders | null>(null);
   const [action, setAction] = useState<{ id: string; verb: string } | null>(null);
   const [result, setResult] = useState<{ id: string; message: string } | null>(null);
+  const [guardEnabled, setGuardEnabled] = useState(true);
 
   useEffect(() => {
+    window.companion.getSettings().then((s) => {
+      setGuardEnabled(s.hooksGuardEnabled !== false);
+      setProviders(null);
+    });
     window.companion.getDoctorReport().then((report) => {
       setProviders(report.providers ?? null);
     });
@@ -79,6 +85,14 @@ export function SourcesPanel() {
 
   return (
     <div className="sources-panel">
+      <div className="hooks-guard-row">
+        <div className="hooks-guard-info">
+          <ShieldCheck size={16} />
+          <span>{t("hooks.guardLabel", "配置守护")}</span>
+          <small className="note">{t("hooks.guardDesc", "检测到 hooks 配置丢失时自动修复（如 ccs 切换模型覆盖了 settings.json）")}</small>
+        </div>
+        <Toggle label="" checked={guardEnabled} onChange={(v) => { setGuardEnabled(v); window.companion.saveSettings({ hooksGuardEnabled: v }); }} />
+      </div>
       <p className="note sources-note">{t("doctor.backupNote", "安装 hooks 后，CLI 会自动将事件发送到 Clawd Companion。备份文件保存在 ~/.claude/settings.clawd-backup.json")}</p>
       {ids.map((id) => {
         const info = providers[id];

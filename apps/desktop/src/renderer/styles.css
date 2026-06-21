@@ -1655,6 +1655,10 @@ input[type="range"]:focus { box-shadow: none; }
   gap: 14px;
   align-items: start;
 }
+.hooks-guard-row { grid-column: 1 / -1; display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 10px 14px; border: 1px solid var(--line); border-radius: 10px; background: rgba(255,255,255,.42); }
+.hooks-guard-info { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.hooks-guard-info span { font-size: 13px; font-weight: 700; }
+.hooks-guard-info small { font-size: 11px; }
 .source-card {
   display: grid;
   gap: 12px;
