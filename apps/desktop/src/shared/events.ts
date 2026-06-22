@@ -84,9 +84,9 @@ export type FeedbackMode = "thought" | "card" | "ribbon";
 
 export type ClientType = "cli" | "desktop" | "vscode" | "unknown";
 
-export type ProviderId = "claude-code" | "codex";
+export type ProviderId = "claude-code" | "codex" | "hermes";
 
-export const PROVIDER_IDS: ProviderId[] = ["claude-code", "codex"];
+export const PROVIDER_IDS: ProviderId[] = ["claude-code", "codex", "hermes"];
 
 export type PermissionDecision = "allow" | "deny";
 

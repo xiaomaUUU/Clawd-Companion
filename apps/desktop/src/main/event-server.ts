@@ -16,7 +16,7 @@ const eventTypes = new Set<CompanionEventType>([
   "git_operation"
 ]);
 
-const sources = new Set(["claude-code", "cc-haha", "manual", "codex"]);
+const sources = new Set(["claude-code", "cc-haha", "manual", "codex", "hermes"]);
 const clientTypes = new Set(["cli", "desktop", "vscode", "unknown"]);
 const toolNames = new Set<ToolName>([
   "Read",

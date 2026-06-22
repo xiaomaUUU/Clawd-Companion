@@ -2,7 +2,7 @@
 
 # Clawd Companion
 
-**A desktop pet companion for Claude Code — a transparent overlay that shows tool calls, session status, and completion alerts in real time.**
+**A desktop pet companion for AI coding agents — a transparent overlay that shows tool calls, session status, and completion alerts in real time for Claude Code, OpenAI Codex, and Hermes Agent.**
 
 ![GitHub all releases](https://img.shields.io/github/downloads/Doulor/Clawd-Companion/total?label=downloads)
 ![GitHub release](https://img.shields.io/github/v/release/Doulor/Clawd-Companion)
@@ -49,8 +49,8 @@
 ### Core experience
 
 - 🪟 **Transparent desktop pet window**, always-on-top, draggable with screen-edge clamping.
-- 🔌 **Local event service** that receives Claude Code hook events over HTTP and WebSocket.
-- 📡 **Hook forwarder** that automatically forwards `SessionStart` / `UserPromptSubmit` / `PreToolUse` / `PostToolUse` / `Notification` / `Stop`.
+- 🔌 **Local event service** that receives Claude Code, OpenAI Codex, and Hermes Agent events over HTTP and WebSocket.
+- 📡 **Multi-provider forwarding**: Claude Code and Codex use managed CLI hooks; Hermes Agent uses a lightweight plugin that forwards `pre_tool_call` / `post_tool_call` / `on_session_start` and approval lifecycle events.
 - 🔄 **Auto-update** powered by GitHub Releases — silent checks on startup, one-click install.
 - 🎬 **Action animation mapping** — customize the Clawd sprite animation per tool/event.
 - 📊 **Runtime statistics** — tool call rankings, session counts, permission stats, and active hours persisted locally.
@@ -127,8 +127,9 @@ CLAWD_COMPANION_AUTOSTART=0   # force off
 1. Download the latest installer from [Releases](https://github.com/Doulor/Clawd-Companion/releases).
 2. Run `Clawd-Companion-Setup-*.exe` to install.
 3. Launch Clawd Companion and open the Settings panel.
-4. Click "One-click install" to configure Claude Code hooks.
-5. Restart your Claude Code session — Clawd will respond to events as they happen.
+4. Claude Code / Codex: click "One-click install" in Settings → Sources to configure managed CLI hooks.
+5. Hermes Agent: copy the plugin from [`plugins/hermes-agent/README.md`](./plugins/hermes-agent/README.md) into `~/.hermes/plugins/clawd-companion`, then restart Hermes.
+6. Reopen the corresponding agent session — Clawd will respond to events as they happen.
 
 > Requires Windows 10 / 11. Node.js 22+ is only required for development.
 
@@ -146,7 +147,7 @@ After launching, Clawd lives on your screen as a transparent overlay. Most contr
 | Settings → Appearance | Theme (Classic / Liquid Glass), size, scale, opacity |
 | Settings → Behavior | Auto-start with Claude Code, animation mapping, sounds, notification rules |
 | Settings → Data | Event history, runtime stats, token usage, import/export |
-| Settings → Plugins | Enable plugins, view permissions and logs |
+| Settings → Sources | Manage Claude Code / Codex hooks and inspect Hermes Agent plugin status |
 | Edit mode | Drag Clawd, bubbles/cards, and ribbons directly on the pet window |
 
 For implementation details see the "Claude Code 启动时自动启动本应用" section in [`CLAUDE.md`](./CLAUDE.md).

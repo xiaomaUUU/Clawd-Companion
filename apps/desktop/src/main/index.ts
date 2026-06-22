@@ -6,7 +6,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { homedir } from "node:os";
 import { spawn } from "node:child_process";
-import type { CompanionConnectionStatus, CompanionEvent, CompanionSettings, PermissionResponse, UpdateStatus, AppStats, CustomPlugin, PluginMarketIndex, PluginRunRecord } from "../shared/events.js";
+import type { CompanionConnectionStatus, CompanionEvent, CompanionSettings, PermissionResponse, UpdateStatus, AppStats, CustomPlugin, PluginMarketIndex, PluginRunRecord, ProviderId } from "../shared/events.js";
 import { defaultSettings, defaultStats } from "../shared/events.js";
 import { scanTokenStats, setCachePath as setTokenCachePath } from "./token-stats.js";
 import { setGitEventHandler, startGitWatcher, stopGitWatcher } from "./git-watcher.js";
@@ -739,39 +739,53 @@ function broadcastSettings() {
 const claudeSettingsPath = join(homedir(), ".claude", "settings.json");
 const backupPath = join(homedir(), ".claude", "settings.clawd-backup.json");
 
-function getForwarderPath(providerId: "claude-code" | "codex"): string {
+type HookProviderId = Exclude<ProviderId, "hermes">;
+const HOOK_PROVIDER_IDS: HookProviderId[] = ["claude-code", "codex"];
+
+function getForwarderPath(providerId: HookProviderId): string {
   const dir = providerId === "codex" ? "hook-forwarder-codex" : "hook-forwarder";
   const devPath = normalizeCommandPath(join(__dirname, `../../dist/${dir}/index.js`));
   if (!app.isPackaged && existsSync(devPath)) return devPath;
   return normalizeCommandPath(join(process.resourcesPath, `${dir}/index.js`));
 }
 
-function getHookCommand(providerId: "claude-code" | "codex"): string {
+function getHookCommand(providerId: HookProviderId): string {
   return `node "${getForwarderPath(providerId)}"`;
 }
 
-function checkHooksFor(providerId: "claude-code" | "codex") {
-  const provider = getProvider(providerId);
-  return checkProviderHooks(provider);
+function isHookProviderId(providerId: ProviderId): providerId is HookProviderId {
+  return providerId !== "hermes";
 }
 
-function checkProviderHooks(provider: Provider) {
+type HookProvider = Provider & { readonly id: HookProviderId };
+
+function getHookProvider(providerId: HookProviderId): HookProvider {
+  const provider = getProvider(providerId);
+  if (!isHookProviderId(provider.id)) throw new Error(`Provider ${provider.id} does not support managed CLI hooks`);
+  return provider as HookProvider;
+}
+
+function checkHooksFor(providerId: HookProviderId) {
+  return checkProviderHooks(getHookProvider(providerId));
+}
+
+function checkProviderHooks(provider: HookProvider) {
   return checkManagedHooks(provider.settingsPath, getHookCommand(provider.id), provider);
 }
 
-function installProviderHooks(provider: Provider) {
+function installProviderHooks(provider: HookProvider) {
   return installManagedHooks(provider.settingsPath, backupPathFor(provider), getHookCommand(provider.id), provider);
 }
 
-function repairProviderHooks(provider: Provider) {
+function repairProviderHooks(provider: HookProvider) {
   return repairManagedHooks(provider.settingsPath, backupPathFor(provider), getHookCommand(provider.id), provider);
 }
 
-function removeProviderHooks(provider: Provider) {
+function removeProviderHooks(provider: HookProvider) {
   return removeManagedHooks(provider.settingsPath, backupPathFor(provider), getHookCommand(provider.id), provider);
 }
 
-function backupPathFor(provider: Provider): string {
+function backupPathFor(provider: HookProvider): string {
   // 与原 Claude hooks 共用一个 backup 路径以避免污染用户配置；
   // Codex 使用独立 backup，避免和 Claude 互相覆盖。
   if (provider.id === "claude-code") return backupPath;
@@ -784,11 +798,12 @@ let hooksGuardStartTimer: ReturnType<typeof setTimeout> | null = null;
 function runHooksGuardCheck() {
   if (!settings.hooksGuardEnabled) return;
   for (const providerId of settings.enabledSources ?? []) {
+    if (!isHookProviderId(providerId)) continue;
     try {
       const status = checkHooksFor(providerId);
       if (!status.installed) {
         logRuntime(`[HooksGuard] ${providerId}: hooks missing (${status.missingEvents.join(", ")}), auto-repairing`);
-        const result = repairProviderHooks(getProvider(providerId));
+        const result = repairProviderHooks(getHookProvider(providerId));
         if (result.success) {
           logRuntime(`[HooksGuard] ${providerId}: repaired ${result.fixed.length} events`);
         } else {
@@ -824,21 +839,45 @@ ipcMain.handle("settings:get", () => settings);
 ipcMain.handle("settings:save", (_, next: Partial<CompanionSettings>) => saveSettings(next));
 ipcMain.handle("connection:get", () => getConnectionStatus());
 ipcMain.handle("event:test", (_, event: CompanionEvent) => emitEvent(event));
-ipcMain.handle("hooks:check", (_, providerId: "claude-code" | "codex" = "claude-code") => checkHooksFor(providerId));
-ipcMain.handle("hooks:install", (_, providerId: "claude-code" | "codex" = "claude-code") => installProviderHooks(getProvider(providerId)));
-ipcMain.handle("hooks:repair", (_, providerId: "claude-code" | "codex" = "claude-code") => repairProviderHooks(getProvider(providerId)));
-ipcMain.handle("hooks:remove", (_, providerId: "claude-code" | "codex" = "claude-code") => removeProviderHooks(getProvider(providerId)));
+function hookProviderOrNull(providerId: ProviderId): HookProviderId | null {
+  return isHookProviderId(providerId) ? providerId : null;
+}
+
+ipcMain.handle("hooks:check", (_, providerId: ProviderId = "claude-code") => {
+  const hookProvider = hookProviderOrNull(providerId);
+  return hookProvider ? checkHooksFor(hookProvider) : { installed: existsSync(getProvider("hermes").settingsPath), configExists: existsSync(getProvider("hermes").settingsPath), hookCount: 0, requiredCount: 0, missingEvents: [], commandMatches: true };
+});
+ipcMain.handle("hooks:install", (_, providerId: ProviderId = "claude-code") => {
+  const hookProvider = hookProviderOrNull(providerId);
+  if (!hookProvider) return { success: false, error: "Hermes Agent uses the bundled Hermes plugin instead of CLI config hooks. See plugins/hermes-agent/README.md." };
+  return installProviderHooks(getHookProvider(hookProvider));
+});
+ipcMain.handle("hooks:repair", (_, providerId: ProviderId = "claude-code") => {
+  const hookProvider = hookProviderOrNull(providerId);
+  if (!hookProvider) return { success: false, fixed: [], error: "Hermes Agent uses the bundled Hermes plugin instead of CLI config hooks. See plugins/hermes-agent/README.md." };
+  return repairProviderHooks(getHookProvider(hookProvider));
+});
+ipcMain.handle("hooks:remove", (_, providerId: ProviderId = "claude-code") => {
+  const hookProvider = hookProviderOrNull(providerId);
+  if (!hookProvider) return { success: false, error: "Remove the ~/.hermes/plugins/clawd-companion plugin directory or disable it with hermes plugins." };
+  return removeProviderHooks(getHookProvider(hookProvider));
+});
 ipcMain.handle("doctor:get-report", () => {
   const plugins = (settings.customPlugins ?? []).map(normalizePlugin);
   const providersReport: Record<string, { hooks: ReturnType<typeof checkProviderHooks>; forwarder: { expectedPath: string; exists: boolean } }> = {};
-  for (const id of ["claude-code", "codex"] as const) {
-    const provider = getProvider(id);
+  for (const id of HOOK_PROVIDER_IDS) {
+    const provider = getHookProvider(id);
     const fp = getForwarderPath(id);
     providersReport[id] = {
       hooks: checkProviderHooks(provider),
       forwarder: { expectedPath: fp, exists: existsSync(fp) }
     };
   }
+  const hermesProvider = getProvider("hermes");
+  providersReport.hermes = {
+    hooks: { installed: existsSync(hermesProvider.settingsPath), configExists: existsSync(hermesProvider.settingsPath), hookCount: 0, requiredCount: 0, missingEvents: [], commandMatches: true },
+    forwarder: { expectedPath: hermesProvider.settingsPath, exists: existsSync(hermesProvider.settingsPath) }
+  };
   return {
     generatedAt: Date.now(),
     appVersion: app.getVersion(),

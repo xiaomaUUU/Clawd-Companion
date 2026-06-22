@@ -1,15 +1,16 @@
 import { describe, expect, it } from "vitest";
-import { claudeCodeProvider, codexProvider, getProvider, providers } from "../src/shared/providers.js";
+import { claudeCodeProvider, codexProvider, getProvider, hermesProvider, providers } from "../src/shared/providers.js";
 import { stateFromEvent } from "../src/shared/events.js";
 
 describe("provider registry", () => {
   it("exposes both built-in providers in a stable order", () => {
-    expect(Object.keys(providers)).toEqual(["claude-code", "codex"]);
+    expect(Object.keys(providers)).toEqual(["claude-code", "codex", "hermes"]);
   });
 
   it("returns the same provider instance by id", () => {
     expect(getProvider("claude-code")).toBe(claudeCodeProvider);
     expect(getProvider("codex")).toBe(codexProvider);
+    expect(getProvider("hermes")).toBe(hermesProvider);
   });
 });
 
@@ -107,5 +108,49 @@ describe("codexProvider.normalize", () => {
   it("falls back to a notification for unknown events", () => {
     const event = codexProvider.normalize({ event: "SomethingNew" }, {});
     expect(event.event).toBe("notification");
+  });
+});
+
+describe("hermesProvider.normalize", () => {
+  it("maps pre_tool_call terminal to a tool_start event", () => {
+    const event = hermesProvider.normalize(
+      { event: "pre_tool_call", tool_name: "terminal", args: { command: "npm test" }, session_id: "h-1", cwd: "/repo" },
+      { privacyMode: "detailed" }
+    );
+
+    expect(event.source).toBe("hermes");
+    expect(event.event).toBe("tool_start");
+    expect(event.tool).toBe("Shell");
+    expect(event.sessionId).toBe("h-1");
+    expect(event.detail).toBe("npm test");
+    expect(stateFromEvent(event)).toBe("tool_bash");
+  });
+
+  it("maps post_tool_call success to a tool_end event", () => {
+    const event = hermesProvider.normalize(
+      { event: "post_tool_call", tool_name: "read_file", args: { path: "/repo/src/app.ts" }, status: "success" },
+      { privacyMode: "detailed" }
+    );
+
+    expect(event.source).toBe("hermes");
+    expect(event.event).toBe("tool_end");
+    expect(event.tool).toBe("Read");
+    expect(event.detail).toBe("app.ts");
+    expect(stateFromEvent(event)).toBe("idle");
+  });
+
+  it("respects safe privacy mode for command details", () => {
+    const event = hermesProvider.normalize(
+      { event: "pre_tool_call", tool_name: "terminal", args: { command: "rm -rf /tmp/example" } },
+      { privacyMode: "safe" }
+    );
+
+    expect(event.detail).toBeUndefined();
+  });
+
+  it("maps session and approval lifecycle events", () => {
+    expect(hermesProvider.normalize({ event: "on_session_start" }, {}).event).toBe("session_start");
+    expect(hermesProvider.normalize({ event: "on_session_end" }, {}).event).toBe("done");
+    expect(hermesProvider.normalize({ event: "pre_approval_request", command: "rm -rf /tmp/example" }, {}).event).toBe("permission_wait");
   });
 });

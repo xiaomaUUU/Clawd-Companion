@@ -58,6 +58,11 @@ describe("event server validation", () => {
     expect(isCompanionEvent({ ...validEvent, source: "codex", tool: "ViewImage" })).toBe(true);
   });
 
+  it("accepts hermes source with normalized tool names", () => {
+    expect(isCompanionEvent({ ...validEvent, source: "hermes", tool: "Shell" })).toBe(true);
+    expect(isCompanionEvent({ ...validEvent, source: "hermes", tool: "Read" })).toBe(true);
+  });
+
   it("still rejects unknown tool names", () => {
     expect(isCompanionEvent({ ...validEvent, tool: "NotARealTool" })).toBe(false);
   });

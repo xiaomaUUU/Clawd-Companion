@@ -22,7 +22,7 @@ export type HookPayload = Record<string, unknown>;
  * means implementing a new provider module — no other changes required.
  */
 export interface Provider {
-  readonly id: "claude-code" | "codex";
+  readonly id: "claude-code" | "codex" | "hermes";
   readonly displayName: string;
   readonly defaultClientLabel: string;
   readonly format: "json" | "toml";
@@ -364,11 +364,162 @@ export const codexProvider: Provider = {
   }
 };
 
+// --- Hermes Agent provider -------------------------------------------------
+
+const HERMES_TOOL_ALIASES: Record<string, ToolName> = {
+  terminal: "Shell",
+  execute_code: "Shell",
+  browser_console: "Shell",
+  read_file: "Read",
+  search_files: "Read",
+  browser_snapshot: "Read",
+  browser_get_images: "Read",
+  vision_analyze: "Read",
+  video_analyze: "Read",
+  write_file: "Write",
+  patch: "Edit",
+  browser_type: "Edit",
+  browser_click: "Edit",
+  browser_press: "Edit",
+  browser_scroll: "Edit",
+  browser_navigate: "WebFetch",
+  browser_back: "WebFetch",
+  browser_vision: "WebFetch",
+  image_generate: "WebSearch",
+  web_search: "WebSearch",
+  web_extract: "WebFetch",
+  delegate_task: "Agent",
+  clarify: "AskUserQuestion",
+  skill_view: "Skill",
+  skills_list: "Skill",
+  skill_manage: "Skill",
+  todo: "Task",
+  cronjob: "Task",
+  session_search: "Task",
+  memory: "Task",
+  text_to_speech: "Task"
+};
+
+function hermesHookName(payload: HookPayload): string {
+  return text(payload.event) ?? text(payload.hook_event_name) ?? text(payload.hookEventName) ?? "Unknown";
+}
+
+function hermesArgs(payload: HookPayload): Record<string, unknown> {
+  return asObject(payload.args) ?? asObject(payload.tool_input);
+}
+
+function hermesToolName(payload: HookPayload): ToolName {
+  const args = hermesArgs(payload);
+  const raw = text(payload.tool_name) ?? text(payload.toolName) ?? text(args.name) ?? "Unknown";
+  if (raw.startsWith("mcp__")) return "MCP";
+  return HERMES_TOOL_ALIASES[raw] ?? "Unknown";
+}
+
+function hermesDetailForTool(payload: HookPayload, tool: ToolName, privacyMode: NormalizeEnv["privacyMode"]): string | undefined {
+  if (privacyMode === "safe") return undefined;
+  const args = hermesArgs(payload);
+  if (tool === "Read" || tool === "Edit" || tool === "Write") return basename(text(args.path) ?? text(args.file_path) ?? text(args.image_url) ?? text(args.video_url));
+  if (tool === "Grep" || tool === "Glob") return text(args.pattern) ? "pattern: " + text(args.pattern) : undefined;
+  if (tool === "WebSearch") return text(args.query) ? "query: " + text(args.query) : undefined;
+  if (tool === "WebFetch") return text(args.url);
+  if (tool === "Shell") return privacyMode === "detailed" ? summarizeCommand(text(args.command) ?? text(args.code)) : undefined;
+  if (tool === "Agent") {
+    const prompt = text(args.goal) ?? text(args.prompt);
+    return prompt ? (prompt.length > 40 ? prompt.slice(0, 37) + "..." : prompt) : undefined;
+  }
+  if (tool === "Skill") return text(args.name) ?? text(args.skill);
+  if (tool === "AskUserQuestion") {
+    const question = text(args.question) ?? text(args.prompt);
+    return question ? (question.length > 40 ? question.slice(0, 37) + "..." : question) : undefined;
+  }
+  return undefined;
+}
+
+function hermesTitleForTool(tool: ToolName): string {
+  if (tool === "Read" || tool === "Notebook") return "正在读文件";
+  if (tool === "Edit" || tool === "Write" || tool === "ApplyPatch") return "正在编辑代码";
+  if (tool === "Shell") return "正在执行命令";
+  if (tool === "Grep" || tool === "Glob" || tool === "WebFetch") return "正在搜索";
+  if (tool === "WebSearch") return "正在搜索网络";
+  if (tool === "Agent") return "正在调用子代理";
+  if (tool === "Skill") return "正在使用技能";
+  if (tool === "Task" || tool === "UpdatePlan") return "正在更新任务";
+  if (tool === "AskUserQuestion") return "等待选择";
+  if (tool === "MCP") return "正在使用 MCP 工具";
+  return "正在使用工具";
+}
+
+export const hermesProvider: Provider = {
+  id: "hermes",
+  displayName: "Hermes Agent",
+  defaultClientLabel: "Hermes Agent",
+  format: "json",
+  settingsPath: join(homedir(), ".hermes", "plugins", "clawd-companion", "plugin.yaml"),
+  requiredEvents: ["pre_tool_call", "post_tool_call", "on_session_start", "on_session_end", "pre_approval_request", "post_approval_response"],
+  permissionEvents: ["pre_approval_request"],
+  toolNames: ["Read", "Edit", "Write", "Bash", "Grep", "Glob", "WebFetch", "WebSearch", "Notebook", "Agent", "Skill", "Task", "AskUserQuestion", "MCP", "Shell", "UpdatePlan", "ApplyPatch", "ViewImage", "Unknown"],
+  normalize(payload, env) {
+    const hook = hermesHookName(payload);
+    const tool = hermesToolName(payload);
+    const sessionId = text(payload.session_id) ?? text(payload.sessionId);
+    const detail = hermesDetailForTool(payload, tool, env.privacyMode);
+    const cwd = text(payload.cwd) ?? text(payload.working_directory);
+    const base: Omit<CompanionEvent, "event" | "title" | "message"> = {
+      id: randomUUID(),
+      source: "hermes",
+      sessionId,
+      clientType: "cli",
+      clientLabel: env.clientLabel ?? "Hermes Agent",
+      cwd,
+      timestamp: Date.now()
+    };
+
+    if (hook === "pre_tool_call") {
+      return {
+        ...base, event: "tool_start", tool,
+        title: hermesTitleForTool(tool),
+        message: detail ? `${tool} 正在处理 ${detail}` : `${tool} 工具已开始。`,
+        detail
+      };
+    }
+    if (hook === "post_tool_call") {
+      const status = text(payload.status);
+      return {
+        ...base, event: status === "error" ? "error" : "tool_end", tool,
+        title: status === "error" ? "工具调用失败" : "工具调用完成",
+        message: detail ? `${tool} 已处理 ${detail}` : `${tool} 工具已结束。`,
+        detail
+      };
+    }
+    if (hook === "pre_approval_request") {
+      const command = text(payload.command);
+      return { ...base, event: "permission_wait", tool: "Shell", title: "需要确认", message: "Hermes Agent 正在等待你的操作。", detail: env.privacyMode === "detailed" ? summarizeCommand(command) : undefined };
+    }
+    if (hook === "post_approval_response") {
+      return { ...base, event: "notification", title: "权限请求已处理", message: "Hermes Agent 已收到你的权限选择。" };
+    }
+    if (hook === "on_session_start") {
+      return { ...base, event: "session_start", title: "会话开始", message: "Clawd 已连接到 Hermes Agent。" };
+    }
+    if (hook === "on_session_end" || hook === "on_session_finalize") {
+      return { ...base, event: "done", title: "处理完成", message: "Hermes Agent 这一轮回复已经结束。" };
+    }
+    return { ...base, event: "notification", title: "Hermes Agent 事件", message: hook };
+  },
+  isPermissionEvent(payload) {
+    return hermesHookName(payload) === "pre_approval_request";
+  },
+  formatPermissionDecision(decision, reason) {
+    return JSON.stringify({ continue: true, decision, reason: reason ?? (decision === "allow" ? "Approved via Clawd Companion" : "Denied via Clawd Companion") });
+  }
+};
+
 // --- registry --------------------------------------------------------------
 
 export const providers: Record<Provider["id"], Provider> = {
   "claude-code": claudeCodeProvider,
-  "codex": codexProvider
+  "codex": codexProvider,
+  "hermes": hermesProvider
 };
 
 export function getProvider(id: Provider["id"]): Provider {

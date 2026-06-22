@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from "electron";
-import type { CompanionConnectionStatus, CompanionEvent, CompanionSettings, PermissionRequest, PermissionResponse, UpdateStatus, DoctorReport, PluginMarketIndex, PluginRunRecord, SessionHistory } from "../shared/events.js";
+import type { CompanionConnectionStatus, CompanionEvent, CompanionSettings, PermissionRequest, PermissionResponse, UpdateStatus, DoctorReport, PluginMarketIndex, PluginRunRecord, SessionHistory, ProviderId } from "../shared/events.js";
 
 interface HooksStatus {
   installed: boolean;
@@ -15,10 +15,10 @@ const companionApi = {
   saveSettings: (settings: Partial<CompanionSettings>) => ipcRenderer.invoke("settings:save", settings) as Promise<CompanionSettings>,
   getConnectionStatus: () => ipcRenderer.invoke("connection:get") as Promise<CompanionConnectionStatus>,
   sendTestEvent: (event: CompanionEvent) => ipcRenderer.invoke("event:test", event) as Promise<void>,
-  checkHooks: (providerId: "claude-code" | "codex" = "claude-code") => ipcRenderer.invoke("hooks:check", providerId) as Promise<HooksStatus>,
-  installHooks: (providerId: "claude-code" | "codex" = "claude-code") => ipcRenderer.invoke("hooks:install", providerId) as Promise<{ success: boolean; error?: string }>,
-  repairHooks: (providerId: "claude-code" | "codex" = "claude-code") => ipcRenderer.invoke("hooks:repair", providerId) as Promise<{ success: boolean; fixed: string[]; error?: string }>,
-  removeHooks: (providerId: "claude-code" | "codex" = "claude-code") => ipcRenderer.invoke("hooks:remove", providerId) as Promise<{ success: boolean; error?: string }>,
+  checkHooks: (providerId: ProviderId = "claude-code") => ipcRenderer.invoke("hooks:check", providerId) as Promise<HooksStatus>,
+  installHooks: (providerId: ProviderId = "claude-code") => ipcRenderer.invoke("hooks:install", providerId) as Promise<{ success: boolean; error?: string }>,
+  repairHooks: (providerId: ProviderId = "claude-code") => ipcRenderer.invoke("hooks:repair", providerId) as Promise<{ success: boolean; fixed: string[]; error?: string }>,
+  removeHooks: (providerId: ProviderId = "claude-code") => ipcRenderer.invoke("hooks:remove", providerId) as Promise<{ success: boolean; error?: string }>,
   openSettings: () => ipcRenderer.invoke("window:open-settings") as Promise<void>,
   minimizeSettings: () => ipcRenderer.invoke("window:minimize-settings") as Promise<void>,
   toggleMaximizeSettings: () => ipcRenderer.invoke("window:toggle-maximize-settings") as Promise<void>,

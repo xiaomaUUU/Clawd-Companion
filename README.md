@@ -2,7 +2,7 @@
 
 # Clawd Companion
 
-**Claude Code 桌宠伴侣 — 透明桌宠窗口实时显示工具调用、会话状态和完成提醒。**
+**AI 编程代理桌宠伴侣 — 透明桌宠窗口实时显示 Claude Code、OpenAI Codex 与 Hermes Agent 的工具调用、会话状态和完成提醒。**
 
 ![GitHub all releases](https://img.shields.io/github/downloads/Doulor/Clawd-Companion/total?label=downloads)
 ![GitHub release](https://img.shields.io/github/v/release/Doulor/Clawd-Companion)
@@ -30,8 +30,8 @@
 ### 核心体验
 
 - 🪟 **透明桌宠窗口**，始终置顶，支持拖拽和边界限制。
-- 🔌 **本地事件服务**：HTTP + WebSocket 接收 CLI hooks 事件。
-- 📡 **多 CLI forwarder**：同时支持 Claude Code 与 OpenAI Codex（v1.6 新增）。可分别转发 `SessionStart` / `UserPromptSubmit` / `PreToolUse` / `PostToolUse` / `PermissionRequest` / `Stop` 等事件。
+- 🔌 **本地事件服务**：HTTP + WebSocket 接收 CLI hooks 与 Hermes 插件事件。
+- 📡 **多代理数据源**：同时支持 Claude Code、OpenAI Codex 与 Hermes Agent。Claude/Codex 通过 CLI hooks forwarder，Hermes 通过插件转发 `pre_tool_call` / `post_tool_call` / `on_session_start` 等事件。
 - 🔄 **自动更新**：基于 GitHub Releases，启动时静默检查，一键安装。
 - 🎬 **动作动画映射**：为每个工具/事件自定义 Clawd 精灵动画。
 - 📊 **运行统计**：工具调用排行、会话数、权限统计、活跃时段等深度数据持久化。
@@ -103,8 +103,9 @@
 1. 从 [Releases](https://github.com/Doulor/Clawd-Companion/releases) 下载最新安装包。
 2. 双击 `Clawd-Companion-Setup-*.exe` 完成安装。
 3. 启动 Clawd Companion，打开配置面板。
-4. 点击「一键安装」自动配置 Claude Code hooks。
-5. 重新打开 Claude Code 会话，即可看到 Clawd 实时响应。
+4. Claude Code / Codex：在「设置 → 数据源」点击「一键安装」自动配置 CLI hooks。
+5. Hermes Agent：按 [`plugins/hermes-agent/README.md`](./plugins/hermes-agent/README.md) 把插件复制到 `~/.hermes/plugins/clawd-companion`，然后重新启动 Hermes。
+6. 重新打开对应代理会话，即可看到 Clawd 实时响应。
 
 > 需要 Windows 10 / 11，Node.js 22+ 仅在开发模式需要。
 
@@ -123,7 +124,7 @@
 | 设置 → 外观 | 主题（经典 / 液态玻璃）、尺寸、缩放、透明度 |
 | 设置 → 行为 | 自动启动 Claude Code、动画映射、音效、通知规则 |
 | 设置 → 数据 | 事件历史、运行统计、Token 用量、导入/导出 |
-| 设置 → 数据源 | 同时管理 Claude Code 与 OpenAI Codex 的 hooks 安装/修复/移除 |
+| 设置 → 数据源 | 管理 Claude Code / Codex hooks，查看 Hermes Agent 插件连接状态 |
 | 设置 → 插件 | 启用插件、查看权限与日志 |
 | 编辑模式 | 在桌宠上直接拖动 Clawd 和气泡/卡片/工具条 |
 

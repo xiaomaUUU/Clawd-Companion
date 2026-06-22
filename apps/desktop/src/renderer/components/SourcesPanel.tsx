@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Bot, PlugZap, ShieldCheck, Sparkles } from "lucide-react";
 import { useI18n } from "../useI18n";
 import { Toggle } from "./ui/Toggle";
+import type { ProviderId } from "../../shared/events";
 
 interface ProviderStatus {
   installed: boolean;
@@ -27,10 +28,19 @@ const PROVIDER_META: Record<string, { label: string; tagline: string; Icon: Reac
   },
   "codex": {
     label: "OpenAI Codex",
-    tagline: "新增：跟踪 Codex CLI 事件",
+    tagline: "跟踪 Codex CLI 事件",
     Icon: Sparkles
+  },
+  "hermes": {
+    label: "Hermes Agent",
+    tagline: "通过 Hermes 插件转发工具调用事件",
+    Icon: PlugZap
   }
 };
+
+function isHookProviderId(id: string): id is Exclude<ProviderId, "hermes"> {
+  return id === "claude-code" || id === "codex";
+}
 
 export function SourcesPanel() {
   const { t } = useI18n();
@@ -54,7 +64,7 @@ export function SourcesPanel() {
     });
   }, []);
 
-  async function handle(id: "claude-code" | "codex", verb: "install" | "repair" | "remove") {
+  async function handle(id: Exclude<ProviderId, "hermes">, verb: "install" | "repair" | "remove") {
     setAction({ id, verb });
     setResult(null);
     let res: { success: boolean; error?: string; fixed?: string[] };
@@ -106,11 +116,12 @@ export function SourcesPanel() {
           <Toggle label="" checked={guardEnabled} onChange={(v) => { setGuardEnabled(v); window.companion.saveSettings({ hooksGuardEnabled: v }); }} />
         </div>
       </div>
-      <p className="note sources-note sources-note-span">{t("doctor.backupNote", "安装 hooks 后，CLI 会自动将事件发送到 Clawd Companion。备份文件保存在 ~/.claude/settings.clawd-backup.json")}</p>
+      <p className="note sources-note sources-note-span">{t("doctor.backupNote", "安装 hooks 后，Claude / Codex 会自动将事件发送到 Clawd Companion；Hermes 通过插件转发。备份文件分别保存在 ~/.claude/settings.clawd-backup.json 和 ~/.codex/settings.clawd-backup.toml")}</p>
       {ids.map((id) => {
         const info = providers[id];
         const meta = PROVIDER_META[id] ?? { label: id, tagline: "", Icon: PlugZap };
         const status = info.hooks;
+        const isHermes = id === "hermes";
         const tone: "good" | "wait" | "bad" = status.installed ? "good" : status.configExists ? "wait" : "bad";
         const isBusy = action?.id === id;
         return (
@@ -133,31 +144,44 @@ export function SourcesPanel() {
             />
 
             <div className="hooks-detail">
-              <span>{formatText(t("doctor.configuredCount", "已配置 {count} / {total} 个事件"), { count: status.hookCount, total: status.requiredCount })}</span>
-              {status.missingEvents.length > 0 && (
-                <span className="hooks-missing">
-                  {formatText(t("doctor.missingPrefix", "缺少: {events}"), { events: status.missingEvents.join(", ") })}
-                </span>
-              )}
-              {!status.commandMatches && status.configExists && (
-                <span className="hooks-mismatch">{t("doctor.mismatchHint", "命令路径不匹配，建议修复")}</span>
-              )}
-              {!info.forwarder.exists && (
-                <span className="hooks-mismatch">{t("doctor.forwarderMissing", "Forwarder 文件未找到")}</span>
+              {isHermes ? (
+                <>
+                  <span>{meta.tagline}</span>
+                  <span>{info.forwarder.exists ? "Hermes 插件已安装" : "复制 plugins/hermes-agent 到 ~/.hermes/plugins/clawd-companion 后启用"}</span>
+                </>
+              ) : (
+                <>
+                  <span>{formatText(t("doctor.configuredCount", "已配置 {count} / {total} 个事件"), { count: status.hookCount, total: status.requiredCount })}</span>
+                  {status.missingEvents.length > 0 && (
+                    <span className="hooks-missing">
+                      {formatText(t("doctor.missingPrefix", "缺少: {events}"), { events: status.missingEvents.join(", ") })}
+                    </span>
+                  )}
+                  {!status.commandMatches && status.configExists && (
+                    <span className="hooks-mismatch">{t("doctor.mismatchHint", "命令路径不匹配，建议修复")}</span>
+                  )}
+                  {!info.forwarder.exists && (
+                    <span className="hooks-mismatch">{t("doctor.forwarderMissing", "Forwarder 文件未找到")}</span>
+                  )}
+                </>
               )}
             </div>
 
-            <div className="hooks-actions">
-              <button onClick={() => handle(id as "claude-code" | "codex", "install")} disabled={!!action}>
-                {isBusy && action!.verb === "installing" ? t("doctor.installing", "安装中...") : t("doctor.oneClickInstall", "一键安装")}
-              </button>
-              <button onClick={() => handle(id as "claude-code" | "codex", "repair")} disabled={!!action}>
-                {isBusy && action!.verb === "repairing" ? t("doctor.repairing", "修复中...") : t("doctor.repairConfig", "修复配置")}
-              </button>
-              <button className="danger" onClick={() => handle(id as "claude-code" | "codex", "remove")} disabled={!!action}>
-                {isBusy && action!.verb === "removing" ? t("doctor.removing", "移除中...") : t("doctor.removeHooks", "移除 Hooks")}
-              </button>
-            </div>
+            {isHermes ? (
+              <p className="note">参考 plugins/hermes-agent/README.md 安装 Hermes 插件；插件会把 Hermes 工具调用事件发送到 Clawd Companion。</p>
+            ) : (
+              <div className="hooks-actions">
+                <button onClick={() => isHookProviderId(id) && handle(id, "install")} disabled={!!action}>
+                  {isBusy && action!.verb === "install" ? t("doctor.installing", "安装中...") : t("doctor.oneClickInstall", "一键安装")}
+                </button>
+                <button onClick={() => isHookProviderId(id) && handle(id, "repair")} disabled={!!action}>
+                  {isBusy && action!.verb === "repair" ? t("doctor.repairing", "修复中...") : t("doctor.repairConfig", "修复配置")}
+                </button>
+                <button className="danger" onClick={() => isHookProviderId(id) && handle(id, "remove")} disabled={!!action}>
+                  {isBusy && action!.verb === "remove" ? t("doctor.removing", "移除中...") : t("doctor.removeHooks", "移除 Hooks")}
+                </button>
+              </div>
+            )}
 
             {result && result.id === id && <p className="hooks-result">{result.message}</p>}
           </div>
