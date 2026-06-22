@@ -13,9 +13,15 @@ interface ProviderStatus {
   commandMatches: boolean;
 }
 
+interface HermesStatus extends ProviderStatus {
+  endpointPath?: string;
+  endpointMatches: boolean;
+  tokenConfigured: boolean;
+}
+
 interface DoctorProviders {
   [id: string]: {
-    hooks: ProviderStatus;
+    hooks: ProviderStatus | HermesStatus;
     forwarder: { expectedPath: string; exists: boolean };
   };
 }
@@ -40,6 +46,10 @@ const PROVIDER_META: Record<string, { label: string; tagline: string; Icon: Reac
 
 function isHookProviderId(id: string): id is Exclude<ProviderId, "hermes"> {
   return id === "claude-code" || id === "codex";
+}
+
+function isHermesStatus(status: ProviderStatus | HermesStatus): status is HermesStatus {
+  return "endpointMatches" in status;
 }
 
 export function SourcesPanel() {
@@ -122,7 +132,20 @@ export function SourcesPanel() {
         const meta = PROVIDER_META[id] ?? { label: id, tagline: "", Icon: PlugZap };
         const status = info.hooks;
         const isHermes = id === "hermes";
-        const tone: "good" | "wait" | "bad" = status.installed ? "good" : status.configExists ? "wait" : "bad";
+        const hermesStatus = isHermes && isHermesStatus(status) ? status : null;
+        const hermesInstalled = Boolean(hermesStatus?.installed);
+        const hermesHealthy = Boolean(hermesInstalled && hermesStatus?.endpointMatches && hermesStatus?.tokenConfigured);
+        const tone: "good" | "wait" | "bad" = isHermes
+          ? hermesHealthy
+            ? "good"
+            : hermesInstalled
+            ? "wait"
+            : "bad"
+          : status.installed
+          ? "good"
+          : status.configExists
+          ? "wait"
+          : "bad";
         const isBusy = action?.id === id;
         return (
           <div key={id} className="source-card">
@@ -134,7 +157,13 @@ export function SourcesPanel() {
                   : formatText(t("doctor.statusLabel", "{provider} 状态"), { provider: meta.label })
               }
               value={
-                status.installed
+                isHermes
+                  ? hermesHealthy
+                    ? t("status.connected", "已连接")
+                    : hermesInstalled
+                    ? t("status.waiting", "等待连接")
+                    : t("hooks.notInstalled", "未安装")
+                  : status.installed
                   ? formatText(t("hooks.installedToProvider", "已安装到 {provider}"), { provider: meta.label })
                   : status.configExists
                   ? t("doctor.partial", "部分安装")
@@ -148,6 +177,13 @@ export function SourcesPanel() {
                 <>
                   <span>{meta.tagline}</span>
                   <span>{info.forwarder.exists ? "Hermes 插件已安装" : "复制 plugins/hermes-agent 到 ~/.hermes/plugins/clawd-companion 后启用"}</span>
+                  {hermesStatus?.endpointPath && <span>{`事件端点：${hermesStatus.endpointPath}`}</span>}
+                  {hermesStatus && !hermesStatus.endpointMatches && (
+                    <span className="hooks-mismatch">插件未读取 Clawd 当前连接配置，建议重开 Hermes 会话</span>
+                  )}
+                  {hermesStatus && !hermesStatus.tokenConfigured && (
+                    <span className="hooks-mismatch">缺少连接令牌，Hermes 事件还不能通过认证</span>
+                  )}
                 </>
               ) : (
                 <>
@@ -168,7 +204,7 @@ export function SourcesPanel() {
             </div>
 
             {isHermes ? (
-              <p className="note">参考 plugins/hermes-agent/README.md 安装 Hermes 插件；插件会把 Hermes 工具调用事件发送到 Clawd Companion。</p>
+              <p className="note">Hermes 现在按原本 forwarder 的格式读取 `~/.clawd-companion/connection.json`。装好插件后，重开 Hermes 会话并触发一次工具调用即可连上。</p>
             ) : (
               <div className="hooks-actions">
                 <button onClick={() => isHookProviderId(id) && handle(id, "install")} disabled={!!action}>

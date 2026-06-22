@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+from pathlib import Path
 from typing import Any
 from urllib.error import URLError
 from urllib.request import Request, urlopen
@@ -11,6 +12,7 @@ from urllib.request import Request, urlopen
 
 DEFAULT_URL = "http://127.0.0.1:47634/events"
 TIMEOUT_SECONDS = 0.8
+CONNECTION_CONFIG_PATH = Path.home() / ".clawd-companion" / "connection.json"
 
 
 def _json_safe(value: Any) -> Any:
@@ -25,13 +27,32 @@ def _json_safe(value: Any) -> Any:
         return str(value)
 
 
+def _connection_config() -> dict[str, Any]:
+    try:
+        raw = CONNECTION_CONFIG_PATH.read_text(encoding="utf-8")
+        parsed = json.loads(raw)
+        return parsed if isinstance(parsed, dict) else {}
+    except (OSError, json.JSONDecodeError):
+        return {}
+
+
 def _endpoint() -> str:
-    return os.getenv("CLAWD_COMPANION_HERMES_URL", DEFAULT_URL).strip() or DEFAULT_URL
+    override = os.getenv("CLAWD_COMPANION_HERMES_URL", "").strip()
+    if override:
+        return override
+
+    port = _connection_config().get("port")
+    if isinstance(port, int) and 0 < port < 65536:
+        return f"http://127.0.0.1:{port}/events"
+    return DEFAULT_URL
 
 
 def _headers() -> dict[str, str]:
     headers = {"Content-Type": "application/json"}
     token = os.getenv("CLAWD_COMPANION_TOKEN", "").strip()
+    if not token:
+        config_token = _connection_config().get("token")
+        token = config_token.strip() if isinstance(config_token, str) else ""
     if token:
         headers["Authorization"] = f"Bearer {token}"
     return headers

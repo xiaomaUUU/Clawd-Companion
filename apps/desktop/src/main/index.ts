@@ -843,9 +843,50 @@ function hookProviderOrNull(providerId: ProviderId): HookProviderId | null {
   return isHookProviderId(providerId) ? providerId : null;
 }
 
+function checkHermesPlugin(provider: Provider) {
+  const installed = existsSync(provider.settingsPath);
+  const connectionPath = join(homedir(), ".clawd-companion", "connection.json");
+  const configExists = existsSync(connectionPath);
+  let endpointPath: string | undefined;
+  let endpointMatches = false;
+  let tokenConfigured = false;
+
+  if (configExists) {
+    try {
+      const parsed = JSON.parse(readFileSync(connectionPath, "utf8")) as { port?: unknown; token?: unknown };
+      const port = typeof parsed.port === "number" && Number.isInteger(parsed.port) ? parsed.port : 47634;
+      endpointPath = `http://127.0.0.1:${port}/events`;
+      tokenConfigured = typeof parsed.token === "string" && parsed.token.trim().length > 0;
+    } catch {
+      endpointPath = connectionPath;
+    }
+  }
+
+  if (installed) {
+    try {
+      const pluginSource = readFileSync(provider.settingsPath, "utf8");
+      endpointMatches = pluginSource.includes("connection.json") && pluginSource.includes("_connection_config");
+    } catch {
+      endpointMatches = false;
+    }
+  }
+
+  return {
+    installed,
+    configExists,
+    hookCount: installed ? provider.requiredEvents.length : 0,
+    requiredCount: provider.requiredEvents.length,
+    missingEvents: installed ? [] : [...provider.requiredEvents],
+    commandMatches: endpointMatches,
+    endpointPath,
+    endpointMatches,
+    tokenConfigured
+  };
+}
+
 ipcMain.handle("hooks:check", (_, providerId: ProviderId = "claude-code") => {
   const hookProvider = hookProviderOrNull(providerId);
-  return hookProvider ? checkHooksFor(hookProvider) : { installed: existsSync(getProvider("hermes").settingsPath), configExists: existsSync(getProvider("hermes").settingsPath), hookCount: 0, requiredCount: 0, missingEvents: [], commandMatches: true };
+  return hookProvider ? checkHooksFor(hookProvider) : checkHermesPlugin(getProvider("hermes"));
 });
 ipcMain.handle("hooks:install", (_, providerId: ProviderId = "claude-code") => {
   const hookProvider = hookProviderOrNull(providerId);
@@ -864,7 +905,7 @@ ipcMain.handle("hooks:remove", (_, providerId: ProviderId = "claude-code") => {
 });
 ipcMain.handle("doctor:get-report", () => {
   const plugins = (settings.customPlugins ?? []).map(normalizePlugin);
-  const providersReport: Record<string, { hooks: ReturnType<typeof checkProviderHooks>; forwarder: { expectedPath: string; exists: boolean } }> = {};
+  const providersReport: Record<string, { hooks: ReturnType<typeof checkProviderHooks> | ReturnType<typeof checkHermesPlugin>; forwarder: { expectedPath: string; exists: boolean } }> = {};
   for (const id of HOOK_PROVIDER_IDS) {
     const provider = getHookProvider(id);
     const fp = getForwarderPath(id);
@@ -875,7 +916,7 @@ ipcMain.handle("doctor:get-report", () => {
   }
   const hermesProvider = getProvider("hermes");
   providersReport.hermes = {
-    hooks: { installed: existsSync(hermesProvider.settingsPath), configExists: existsSync(hermesProvider.settingsPath), hookCount: 0, requiredCount: 0, missingEvents: [], commandMatches: true },
+    hooks: checkHermesPlugin(hermesProvider),
     forwarder: { expectedPath: hermesProvider.settingsPath, exists: existsSync(hermesProvider.settingsPath) }
   };
   return {

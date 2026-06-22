@@ -12,24 +12,21 @@ cp plugins/hermes-agent/plugin.yaml ~/.hermes/plugins/clawd-companion/plugin.yam
 cp plugins/hermes-agent/__init__.py ~/.hermes/plugins/clawd-companion/__init__.py
 ```
 
-Then enable or reload plugins from Hermes:
+Clawd Companion writes the current local port and token to `~/.clawd-companion/connection.json`, and the plugin reads that file automatically. In the common case you do not need to set any extra environment variables.
 
-```bash
-hermes plugins list
-```
-
-Start Clawd Companion before running Hermes. By default the plugin posts to:
-
-```text
-http://127.0.0.1:47634/events
-```
+Then restart Hermes or start a fresh Hermes session so the plugin loads.
 
 ## Configuration
 
-Optional environment variables:
+By default the plugin reads:
+
+- endpoint + port from `~/.clawd-companion/connection.json`
+- bearer token from `~/.clawd-companion/connection.json`
+
+Optional environment variables override that auto-detection:
 
 - `CLAWD_COMPANION_HERMES_URL`: override the event endpoint.
-- `CLAWD_COMPANION_TOKEN`: bearer token when Clawd Companion is configured to require one.
+- `CLAWD_COMPANION_TOKEN`: override the bearer token when needed.
 
 The plugin ignores connection failures so Hermes keeps working when the desktop app is closed.
 
